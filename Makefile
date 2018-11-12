@@ -1,6 +1,7 @@
 
 simulate:
-	clang++ simulate.cpp -o sim
+	clang++ testrbody.cpp -o test
 
 clean:
-	rm ./sim
+	rm ./test
+	rm *~
