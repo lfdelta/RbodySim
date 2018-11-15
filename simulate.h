@@ -27,7 +27,7 @@ mat2 RotationMatrix(const float t) {
   return rot;
 }
 
-// https://en.wikipedia.org/wiki/Centroid#Of_a_polygon
+// reference: https://en.wikipedia.org/wiki/Centroid#Of_a_polygon
 vec2 CenterOfMass(const vec2* verts, const int nverts, float& outArea) {
   float area=0, x=0, y=0;
   float a;
