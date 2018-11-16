@@ -71,7 +71,7 @@ public:
   // void loadSystem(filestream) //http://www.cplusplus.com/doc/tutorial/files/  //https://www.learncpp.com/cpp-tutorial/186-basic-file-io/
 
   // performs a complete simulation, running for nsteps
-  void runFullSimulation() {
+  void runFullSimulation(FILE* outf=stdout) {
     clock_t timer;
 
     switch (mode) {
@@ -82,28 +82,28 @@ public:
           simulateTimestep();
 
         timer = clock() - timer;
-        fprintf(stdout, "%f\n", timer/(double)CLOCKS_PER_SEC);
+        fprintf(outf, "%f\n", timer/(double)CLOCKS_PER_SEC);
         break;
 
       case Sim_FullOutput:
-        outputSystemData();
+        outputSystemData(outf);
         for (int i=0; i < nsteps; i++) {
           simulateTimestep();
-          outputStepData();
+          outputStepData(outf);
         }
         break;
     }
   }
 
   // prints
-  void outputSystemData() {}
+  void outputSystemData(FILE* outf=stdout) {}
 
   // prints CSV-formatted information about the current timestep to stdout
-  void outputStepData() {
+  void outputStepData(FILE* outf=stdout) {
     for (int i=0; i < nphys-1; i++) {
-      fprintf(stdout, "%f %f,", physObjs[i]->position[0], physObjs[i]->position[1]);
+      fprintf(outf, "%f,%f,", physObjs[i]->position[0], physObjs[i]->position[1]);
     }
-    fprintf(stdout, "%f %f\n", physObjs[nphys-1]->position[0], physObjs[nphys-1]->position[1]);
+    fprintf(outf, "%f,%f\n", physObjs[nphys-1]->position[0], physObjs[nphys-1]->position[1]);
   }
 
   // uses the instance properties to apply physics, handle collisions, and update the system
@@ -228,19 +228,20 @@ class EulerPairwise : public Simulator {
     float MTVdist = -1;
 
     if (SeparatingAxisOverlap(a, b, MTVdir, MTVdist)) {
-      // move A and B in proportion to their relative velocities
-      float av = a->velocity.norm(), bv = b->velocity.norm();
+      // move A and B in proportion to their relative momenta
+      float av = a->mass * a->velocity.norm();
+      float bv = b->mass * b->velocity.norm();
       float aRatio = av / (av + bv);
       float bRatio = 1 - aRatio;
 
       vec2 MTV = MTVdir * MTVdist;
-      a->position += aRatio * MTV;
-      b->position -= bRatio * MTV;
+      a->position -= aRatio * MTV;
+      b->position += bRatio * MTV;
 
       vec2 aPerpvel = MTVdir * MTVdir.dot(a->velocity);
       vec2 bPerpvel = MTVdir * MTVdir.dot(b->velocity);
-      a->velocity -= 2 * aRatio * aPerpvel;
-      b->velocity += 2 * bRatio * bPerpvel;
+      a->velocity -= 2 * aPerpvel;
+      b->velocity -= 2 * bPerpvel;
     }
   }
 
@@ -261,22 +262,36 @@ class EulerPairwise : public Simulator {
     // iterate through objects to check collisions (pairwise)
     for (int t=0; t < physLoops; t++) {
 
-      int maxiter = std::max(nphys-1, 1); // appropriately handles the case nphys=1
-
-      for (int i=0; i < maxiter; i++) {
-        Dynamic* thisphys = physObjs[i];
-        for (int j=i+1; j < nphys; j++) {
-          Dynamic* other = physObjs[j];
-          if (AABBoverlap(thisphys, other))
-            dynamicCollision(thisphys, other);
-        }
-
+      if (nphys == 1) {
+        Dynamic* thisphys = physObjs[0];
         for (int j=0; j < nstatics; j++) {
           Rigidbody* other = staticObjs[j];
           if (AABBoverlap(thisphys, other))
             staticCollision(thisphys, other);
         }
-      } // end collision
+      } else { // nphys > 1
+        for (int i=0; i < nphys-1; i++) {
+          Dynamic* thisphys = physObjs[i];
+          for (int j=i+1; j < nphys; j++) { // all dynamic-dynamic
+            Dynamic* other = physObjs[j];
+            if (AABBoverlap(thisphys, other))
+              dynamicCollision(thisphys, other);
+          }
+
+          for (int j=0; j < nstatics; j++) { // all but one dynamic-static
+            Rigidbody* other = staticObjs[j];
+            if (AABBoverlap(thisphys, other))
+              staticCollision(thisphys, other);
+          }
+        }
+
+        Dynamic* thisphys = physObjs[nphys-1];
+        for (int j=0; j < nstatics; j++) { // final dynamic-static
+            Rigidbody* other = staticObjs[j];
+            if (AABBoverlap(thisphys, other))
+              staticCollision(thisphys, other);
+        }
+      }
     } // end physloop
   }
 
