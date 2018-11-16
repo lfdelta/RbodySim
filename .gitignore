@@ -33,5 +33,7 @@
 
 *~
 sim
-test*
+testeuler
+testrbody
 *.csv
+*.sys

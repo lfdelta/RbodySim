@@ -61,6 +61,7 @@ public:
     rotmat = RotationMatrix(rotation);
   }
 
+  // stores the AABB as the rotated but local coordinates
   void updateAABB() {
     float minX=0, maxX=0, minY=0, maxY=0;
     for(int i=0; i<nverts; i++) {
@@ -86,6 +87,38 @@ public:
     }
   }
 };
+
+
+// class StaticBody: public Rigidbody {
+// public:
+
+//   StaticBody(const vec2* verts, const int sz, const vec2& pos=vec2(0,0), const float rot=0)
+//   :Rigidbody(verts, sz, pos, rot) {
+//     bakeWorldCoords();
+//   }
+
+//   // stores the AABB and vertices in world coordinates, for collision-checking efficiency
+//   void bakeWorldCoords() {
+//     for (int i=0; i < nverts; i++) {
+//       vertices[i] = position + (rotmat * vertices[i]);
+//       normals[i] = rotmat * normals[i];
+//     }
+
+//     float minX=vertices[0][0], minY=vertices[0][1];
+//     float maxX=minX, maxY=minY;
+//     for(int i=1; i<nverts; i++) {
+//       vec2 vert = vertices[i];
+//       float x = vert[0];
+//       float y = vert[1];
+//       if (x < minX) {minX = x;}
+//       if (x > maxX) {maxX = x;}
+//       if (y < minY) {minY = y;}
+//       if (y > maxY) {maxY = y;}
+//     }
+//     AABB[0] = vec2(minX, minY);
+//     AABB[1] = vec2(maxX, maxY);
+//   }
+// };
 
 
 

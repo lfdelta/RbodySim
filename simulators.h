@@ -71,7 +71,7 @@ public:
   // void loadSystem(filestream) //http://www.cplusplus.com/doc/tutorial/files/  //https://www.learncpp.com/cpp-tutorial/186-basic-file-io/
 
   // performs a complete simulation, running for nsteps
-  void runFullSimulation(FILE* outf=stdout) {
+  void runFullSimulation(FILE* outCSV=stdout, FILE* outSYS=stdout) {
     clock_t timer;
 
     switch (mode) {
@@ -82,28 +82,51 @@ public:
           simulateTimestep();
 
         timer = clock() - timer;
-        fprintf(outf, "%f\n", timer/(double)CLOCKS_PER_SEC);
+        fprintf(outCSV, "%f\n", timer/(double)CLOCKS_PER_SEC);
         break;
 
       case Sim_FullOutput:
-        outputSystemData(outf);
+        outputSystemData(outSYS);
+        outputStepData(outCSV);
         for (int i=0; i < nsteps; i++) {
           simulateTimestep();
-          outputStepData(outf);
+          outputStepData(outCSV);
         }
         break;
     }
   }
 
-  // prints
-  void outputSystemData(FILE* outf=stdout) {}
+  // prints CSV-formatted information about the simulation variables and static objects
+  void outputSystemData(FILE* outf=stdout) {
+    fprintf(outf, "tstep,nsteps,g_x,g_y\n");
+    fprintf(outf, "%f,%d,%f,%f\n\n", tstep, nsteps, globalForce[0], globalForce[1]);
+
+    // print world-space vertex xs, then all ys
+    for (int i=0; i < nstatics; i++) {
+      Rigidbody* rbody = staticObjs[i];
+      //fprintf(outf, "%f,%f,%f,0\n", rbody->position[0], rbody->position[1], rbody->rotation);
+
+      vec2 rVerts[rbody->nverts], rNorms[rbody->nverts];
+      rbody->worldCoords(rVerts, rNorms);
+
+      for (int j=0; j < rbody->nverts-1; j++)
+        fprintf(outf, "%f,", rVerts[j][0]);
+      fprintf(outf, "%f\n", rVerts[rbody->nverts-1][0]);
+
+      for (int j=0; j < rbody->nverts-1; j++)
+        fprintf(outf, "%f,", rVerts[j][1]);
+      fprintf(outf, "%f\n", rVerts[rbody->nverts-1][1]);
+    }
+  }
 
   // prints CSV-formatted information about the current timestep to stdout
   void outputStepData(FILE* outf=stdout) {
     for (int i=0; i < nphys-1; i++) {
-      fprintf(outf, "%f,%f,", physObjs[i]->position[0], physObjs[i]->position[1]);
+      fprintf(outf, "%f,%f,%f,%f,", physObjs[i]->position[0], physObjs[i]->position[1],
+                                    physObjs[i]->velocity[0], physObjs[i]->velocity[1]);
     }
-    fprintf(outf, "%f,%f\n", physObjs[nphys-1]->position[0], physObjs[nphys-1]->position[1]);
+    fprintf(outf, "%f,%f,%f,%f\n", physObjs[nphys-1]->position[0], physObjs[nphys-1]->position[1],
+                                   physObjs[nphys-1]->velocity[0], physObjs[nphys-1]->velocity[1]);
   }
 
   // uses the instance properties to apply physics, handle collisions, and update the system
