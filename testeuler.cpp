@@ -11,13 +11,11 @@ int main(int argc, char* argv[]) {
   int nsteps = 100;
   float dt = 0.1;
   char* fname;
-  FILE *outCSV, *outSYS;
+  FILE *outSIM, *outSYS, *outSTA, *outDYN;
 
   int c;
   extern char *optarg;
   extern int optind, opterr, optopt;
-  //int nsteps = (argc >= 2) ? std::stoi(argv[1]) : 100;
-  //float dt = (argc >= 3) ? std::stof(argv[2]) : 0.1f;
 
   while ((c = getopt(argc, argv, "s:n:t:f:")) != -1) {
     switch(c) {
@@ -33,12 +31,20 @@ int main(int argc, char* argv[]) {
     case 'f':
       fname = (char*)malloc(strlen(optarg) + 4+1);
       strcpy(fname, optarg);
-      strcat(fname, ".csv");
-      outCSV = fopen(fname, "w");
+      strcat(fname, ".sim");
+      outSIM = fopen(fname, "w");
 
       strcpy(fname, optarg);
       strcat(fname, ".sys");
       outSYS = fopen(fname, "w");
+
+      strcpy(fname, optarg);
+      strcat(fname, ".sta");
+      outSTA = fopen(fname, "w");
+
+      strcpy(fname, optarg);
+      strcat(fname, ".dyn");
+      outDYN = fopen(fname, "w");
       free(fname);
       break;
     case ':':
@@ -77,15 +83,22 @@ int main(int argc, char* argv[]) {
     nphys = 2; nstat = 3;
     physs[0] = boxL; physs[1] = boxR;
     stats[0] = wallL; stats[1] = wallR; stats[2] = wallB;
+  } else if (scene == 3) {
+
+    Rigidbody* floor = new Rigidbody(floorverts, 4, vec2(0, -0.5));
+    nphys = 10; nstat = 1;
+    stats[0] = floor;
   } else {
     return 0;
   }
 
   EulerPairwise* sim = new EulerPairwise(physs, nphys, stats, nstat, 5, dt, nsteps, grav, Sim_FullOutput);
-  if (outCSV) {
-    sim->runFullSimulation(outCSV, outSYS);
-    fclose(outCSV);
+  if (outSIM) {
+    sim->runFullSimulation(outSIM, outSYS, outSTA, outDYN);
+    fclose(outSIM);
     fclose(outSYS);
+    fclose(outSTA);
+    fclose(outDYN);
   } else {
     sim->runFullSimulation();
   }

@@ -35,5 +35,7 @@
 sim
 testeuler
 testrbody
-*.csv
+*.sim
 *.sys
+*.sta
+*.dyn

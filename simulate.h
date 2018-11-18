@@ -54,4 +54,30 @@ vec2 CenterOfMass(const vec2* verts, const int nverts, float& outArea) {
   return vec2(x, y);
 }
 
+// returns the moment of inertia of a polygon about the origin (defined implicitly by verts)
+// computed as the sum of the moments of the subtriangles (with one vertex at the origin)
+float MomentOfInertia(const vec2* verts, const int nverts, const float mass) {
+  float area=0, I=0;
+  float da, dI;
+  vec2 p, q;
+
+  for (int i=0; i < nverts-1; i++) {
+    p = verts[i]; q = verts[i+1];
+    da = p[0]*q[1] - p[1]*q[0];
+    dI = p.dot(p) + p.dot(q) + q.dot(q);
+
+    area += da;
+    I += dI * da;
+  }
+
+  // final iteration: wrap around
+  p = verts[nverts-1]; q = verts[0];
+  da = p[0]*q[1] - p[1]*q[0];
+  dI = p.dot(p) + p.dot(q) + q.dot(q);
+  area += da;
+  I += dI * da;
+
+  return mass/area * I/6; // da is double-area, but cancels with /2area
+}
+
 #endif //_SIMULATE_

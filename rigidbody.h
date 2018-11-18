@@ -13,7 +13,8 @@ public:
   vec2 position; // world space
   float rotation; // radians
   float mass;
-  vec2* normals; // normal vector to the edge; normal[i] = vertices[i+1] - vertices[i]
+  float inertia; // moment of inertia
+  vec2* normals; // normal vector to the edge; normal[i] between vertices[i] and vertices[i+1]
   mat2 rotmat; // rotation matrix; should be updated as needed with updateRotMat()
   vec2 AABB[2]; // local axis-aligned bounding box; lower-left and upper-right
 
@@ -37,6 +38,11 @@ public:
     for (int i=0; i < nverts; i++)
       vertices[i] = verts[i] - CoM;
 
+    if (mass == 0)
+      mass = area;
+
+    inertia = MomentOfInertia(vertices, nverts, mass);
+
     // compute normal vectors
     for (int i=0; i < nverts; i++) {
       vec2 v = vertices[(i+1)%nverts] - vertices[i];
@@ -49,9 +55,6 @@ public:
         normals[i] = vec2(nx, ny);
       }
     }
-
-    if (mass == 0)
-      mass = area;
 
     updateRotMat();
     updateAABB();
