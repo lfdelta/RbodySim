@@ -264,6 +264,9 @@ class EulerPairwise : public Simulator {
       float aRatio = av / (av + bv);
       float bRatio = 1 - aRatio;
 
+      if (a->position.dot(MTVdir) > b->position.dot(MTVdir))
+        MTVdir *= -1; // ensure MTV points from A to B
+
       vec2 MTV = MTVdir * MTVdist;
       a->position -= aRatio * MTV;
       b->position += bRatio * MTV;

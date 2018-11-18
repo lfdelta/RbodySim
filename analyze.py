@@ -103,12 +103,20 @@ if (arg.d[0] == 3): # conservation of energy and momentum
     E = KE+U
     sysE += E
 
-    axs[0].plot(xvels, label=f"$v_{{x{n+1}}}$") # x velocity
-    axs[0].plot(yvels, label=f"$v_{{y{n+1}}}$") # y velocity
+    a = 0.5 # alpha
+    k1=0.4; k2=1.6 # min/max color value
+    k = k1 + (k2-k1) * n/(nobjs-1)
+    on = min(k, 1)
+    off = max(0, k-1)
+    r = [on,off,off,a]; g = [off,on,off,a]; b = [off,off,on,a]
 
-    axs[1].plot(KE, label=f"Kinetic $T_{{{n+1}}}$")
-    axs[1].plot(U, label=f"Potential $U_{{{n+1}}}$")
-    axs[1].plot(E, alpha=0.5, label=f"Total $E_{{{n+1}}}$")
+    doLabel = (n == nobjs//2)
+    axs[0].plot(xvels, c=r, label="$v_x$" if doLabel else None)
+    axs[0].plot(yvels, c=g, label="$v_y$" if doLabel else None)
+
+    axs[1].plot(KE, c=r, label="Kinetic $T$" if doLabel else None)
+    axs[1].plot(U, c=g, label="Potential $U$" if doLabel else None)
+    axs[1].plot(E, c=b, label="Total $E$" if doLabel else None)
 
   axs[2].plot(sysE, label="Total $E$")
 
