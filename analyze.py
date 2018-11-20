@@ -52,8 +52,16 @@ markers = ['o', 's', 'v', 'D', '*', '^', '.', 'P', 'x']
 if (arg.d[0] == 1): # plot x and y separately against t
   fig, ax = plt.subplots()
   for n in range(nobjs):
-    ax.plot(data[n*colsPerObj], label=f"$x_{{{n+1}}}$") # x position
-    ax.plot(data[n*colsPerObj + 1], label=f"$y_{{{n+1}}}$") # y position
+    a = 1 # alpha
+    k1=0.5; k2=1.5 # min/max color value
+    k = k1 + (k2-k1) * n/(nobjs-1)
+    on = min(k, 1)
+    off = max(0, k-1)
+    r = [on,off,off,a]; g = [off,on,off,a]; b = [off,off,on,a]
+    doLabel = (n == nobjs//2)
+
+    ax.plot(data[n*colsPerObj], c=r, label=f"$x$" if doLabel else None) # x position
+    ax.plot(data[n*colsPerObj + 1], c=g, label=f"$y$" if doLabel else None) # y position
 
   ax.set_title(f"System State Evolution, $dt = {tstep}$")
   ax.set_xlabel("Timestep $t_i$")

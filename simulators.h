@@ -19,12 +19,14 @@ public:
   double tstep; // seconds
   int nsteps;
   vec2 globalForce; // units/second/second
+  float elasticity; // 0 perfectly inelastic, 1 perfectly elastic
   SimType mode;
 
   Simulator(Dynamic** phys, const int nphysObjs, Rigidbody** statics, const int nstatObjs,
-            const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const SimType type=Sim_Timer)
+            const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
   :tstep(t), nsteps(n), globalForce(g), mode(type) {
     loadObjects(phys, nphysObjs, statics, nstatObjs);
+    elasticity = clamp(e, 0, 1);
   }
 
   ~Simulator() {
@@ -62,10 +64,11 @@ public:
       staticObjs[i] = statics[i];
   }
 
-  void simulationSettings(const double t, const int n, const vec2& g) {
+  void simulationSettings(const double t, const int n, const vec2& g=vec2(0,0), const float e=1) {
     tstep = t;
     nsteps = n;
     globalForce = g;
+    elasticity = clamp(e, 0, 1);
   }
 
   // void loadSystem(filestream) //http://www.cplusplus.com/doc/tutorial/files/  //https://www.learncpp.com/cpp-tutorial/186-basic-file-io/
@@ -237,8 +240,8 @@ class EulerPairwise : public Simulator {
   int physLoops; // number of physics loops per timestep
 
   EulerPairwise(Dynamic** phys, const int nphysObjs, Rigidbody** statics, const int nstatObjs, const int loops=5,
-               const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const SimType type=Sim_Timer)
-  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, type), physLoops(loops) {}
+               const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
+  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops) {}
 
   // if SAT collision, move d and apply forces
   void staticCollision(Dynamic* d, Rigidbody* s) {
@@ -246,9 +249,12 @@ class EulerPairwise : public Simulator {
     float MTVdist = -1;
 
     if (SeparatingAxisOverlap(d, s, MTVdir, MTVdist)) {
+      if (d->position.dot(MTVdir) > s->position.dot(MTVdir))
+        MTVdir *= -1; // ensure MTV points from D to S
+
       d->position -= MTVdir * MTVdist; // remove d from its overlap with s
-      vec2 perpvel = MTVdir * MTVdir.dot(d->velocity);
-      d->velocity -= 2 * perpvel; // reflects velocity about the impact normal (elastically)
+      float perpvel = MTVdir.dot(d->velocity);
+      d->velocity -= MTVdir * (1 + elasticity)*perpvel; // reflects velocity along the impact normal
     }
   }
 
@@ -271,10 +277,12 @@ class EulerPairwise : public Simulator {
       a->position -= aRatio * MTV;
       b->position += bRatio * MTV;
 
-      vec2 aPerpvel = MTVdir * MTVdir.dot(a->velocity);
-      vec2 bPerpvel = MTVdir * MTVdir.dot(b->velocity);
-      a->velocity -= 2 * aPerpvel;
-      b->velocity -= 2 * bPerpvel;
+      // velocities parallel to contact plane remain unchanged
+      // A and B switch their normal velocities (Vrel changes sign, Vavg remains constant)
+      float aPerpvel = MTVdir.dot(a->velocity);
+      float bPerpvel = MTVdir.dot(b->velocity);
+      a->velocity += MTVdir*(-aPerpvel + elasticity*bPerpvel);
+      b->velocity += MTVdir*(-bPerpvel + elasticity*aPerpvel);
     }
   }
 

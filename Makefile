@@ -10,6 +10,4 @@ euler:
 	clang++ testeuler.cpp -o testeuler
 
 clean:
-	rm ./testeuler
-	rm ./testrbody
-	rm *~
+	rm ./testeuler ; rm ./testrbody ; rm *~ *.dyn *.sys *.sta *.sim

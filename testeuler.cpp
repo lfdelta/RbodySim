@@ -11,6 +11,7 @@ int main(int argc, char* argv[]) {
   int nsteps = 100;
   int physloops = 5;
   float dt = 0.1;
+  float elasticity = 1.0;
   char* fname;
   FILE *outSIM, *outSYS, *outSTA, *outDYN;
 
@@ -18,7 +19,7 @@ int main(int argc, char* argv[]) {
   extern char *optarg;
   extern int optind, opterr, optopt;
 
-  while ((c = getopt(argc, argv, "s:n:t:f:p:")) != -1) {
+  while ((c = getopt(argc, argv, "s:n:t:f:p:e:")) != -1) {
     switch(c) {
     case 'n':
       nsteps = std::stoi(optarg);
@@ -31,6 +32,9 @@ int main(int argc, char* argv[]) {
       break;
     case 'p':
       physloops = std::stoi(optarg);
+      break;
+    case 'e':
+      elasticity = std::stof(optarg);
       break;
     case 'f':
       fname = (char*)malloc(strlen(optarg) + 4+1);
@@ -98,7 +102,7 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  EulerPairwise* sim = new EulerPairwise(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, Sim_FullOutput);
+  EulerPairwise* sim = new EulerPairwise(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_FullOutput);
   if (outSIM) {
     sim->runFullSimulation(outSIM, outSYS, outSTA, outDYN);
     fclose(outSIM);

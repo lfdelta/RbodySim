@@ -12,8 +12,12 @@ typedef Eigen::Matrix2f mat2;
 
 
 
-float sign(float x) {
+float sign(const float x) {
   return (x > 0) - (x < 0);
+}
+
+float clamp(const float v, const float min, const float max) {
+  return (v < min) ? min : ((v > max) ? max : v);
 }
 
 // takes an angle, t, in radians
