@@ -265,9 +265,9 @@ class EulerPairwise : public Simulator {
 
     if (SeparatingAxisOverlap(a, b, MTVdir, MTVdist)) {
       // move A and B in proportion to their relative momenta
-      float av = a->mass * a->velocity.norm();
-      float bv = b->mass * b->velocity.norm();
-      float aRatio = av / (av + bv);
+      float aP = a->mass * a->velocity.norm();
+      float bP = b->mass * b->velocity.norm();
+      float aRatio = aP / (aP + bP);
       float bRatio = 1 - aRatio;
 
       if (a->position.dot(MTVdir) > b->position.dot(MTVdir))
@@ -277,12 +277,17 @@ class EulerPairwise : public Simulator {
       a->position -= aRatio * MTV;
       b->position += bRatio * MTV;
 
-      // velocities parallel to contact plane remain unchanged
-      // A and B switch their normal velocities (Vrel changes sign, Vavg remains constant)
+      // momentum conserved parallel to contact plane
+      // A and B's normal velocities changed (aPerpvel-bPerpvel changes sign)
       float aPerpvel = MTVdir.dot(a->velocity);
       float bPerpvel = MTVdir.dot(b->velocity);
-      a->velocity += MTVdir*(-aPerpvel + elasticity*bPerpvel);
-      b->velocity += MTVdir*(-bPerpvel + elasticity*aPerpvel);
+      // a->velocity += MTVdir*(-aPerpvel + elasticity*bPerpvel);
+      // b->velocity += MTVdir*(-bPerpvel + elasticity*aPerpvel);
+      float dv = aPerpvel - bPerpvel;
+      float aNewPerp = (a->mass*aPerpvel + b->mass*(bPerpvel - elasticity*dv)) / (a->mass + b->mass);
+      float bNewPerp = aNewPerp + elasticity*dv;
+      a->velocity += MTVdir * (-aPerpvel + aNewPerp);
+      b->velocity += MTVdir * (-bPerpvel + bNewPerp);
     }
   }
 

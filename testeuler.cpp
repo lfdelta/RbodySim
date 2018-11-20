@@ -98,6 +98,20 @@ int main(int argc, char* argv[]) {
 
     nphys = 10; nstat = 1;
     stats[0] = floor;
+
+  } else if (scene == 4) { // billiard squares
+    float mH1 = 1;
+    float mH2 = 1000;
+    float mD = 1;
+    Dynamic* boxHoriz1 = new Dynamic(boxverts, 4, vec2(0,0), 0,mH1, vec2(1, 0));
+    Dynamic* boxDiag1 = new Dynamic(boxverts, 4, vec2(0,3), 0,mD, vec2(1, -1));
+
+    Dynamic* boxHoriz2 = new Dynamic(boxverts, 4, vec2(0,5), 0,mH2, vec2(1, 0));
+    Dynamic* boxDiag2 = new Dynamic(boxverts, 4, vec2(0,8), 0,mD, vec2(1, -1));
+
+    nphys = 4; nstat = 0;
+    physs[0] = boxHoriz1; physs[1] = boxDiag1; physs[2] = boxHoriz2; physs[3] = boxDiag2;
+    grav = vec2(0,0);
   } else {
     return 0;
   }

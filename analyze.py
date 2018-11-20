@@ -79,7 +79,7 @@ if (arg.d[0] == 2): # 2D position plot
   for n in range(nobjs):
     xs = data[n*colsPerObj]
     ys = data[n*colsPerObj + 1]
-    timeplot = ax.scatter(xs, ys, marker=markers[n%len(markers)], edgecolors=(0,0,0,0.5), c=range(nsteps+1), cmap=cmap.Reds, label=f"Object {n+1}")
+    timeplot = ax.scatter(xs, ys, marker=markers[n%len(markers)], edgecolors=(0,0,0,0.5), c=range(nsteps+1), cmap=cmap.Reds, alpha=0.5)
 
   cbar = fig.colorbar(timeplot, ticks=[0, nsteps])
   cbar.ax.set_yticklabels(['$i=0$', f'$i={nsteps}$'])
@@ -87,7 +87,6 @@ if (arg.d[0] == 2): # 2D position plot
   ax.set_title(f"System State Evolution, $dt = {tstep}$")
   ax.set_xlabel("$x$ Position")
   ax.set_ylabel("$y$ Position")
-  ax.legend()
 
 
 if (arg.d[0] == 3): # conservation of energy and momentum
@@ -104,9 +103,9 @@ if (arg.d[0] == 3): # conservation of energy and momentum
     yvels = data[n*colsPerObj + 3]
     rots = data[n*colsPerObj + 4]
     rvel = data[n*colsPerObj + 5]
-    gh = ys - ys.min()
+    gh = -(sys['g_y'] * (ys - ys.min()) + sys['g_x'] * (xs - xs.min()))
 
-    KE = 0.5 * ((m * xvels*xvels + yvels*yvels) + I * rvel*rvel)
+    KE = 0.5 * (m * (xvels*xvels + yvels*yvels) + I * rvel*rvel)
     U = m * gh
     E = KE+U
     sysE += E
