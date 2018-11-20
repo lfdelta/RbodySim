@@ -8,7 +8,7 @@ import argparse
 # parsing arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('file', metavar='f', type=str, help="File prefix to analyze (.csv and .sys)")
-parser.add_argument('-d', metavar='displaymode', type=int, nargs=1, default=[2], choices=(1,2,3))
+parser.add_argument('-d', metavar='displaymode', type=int, nargs=1, default=[2])
 arg = parser.parse_args()
 
 
@@ -49,12 +49,15 @@ nobjs = len(data)//colsPerObj
 
 markers = ['o', 's', 'v', 'D', '*', '^', '.', 'P', 'x']
 
-if (arg.d[0] == 1): # plot x and y separately against t
+if (0 in arg.d):
+  arg.d = [x for x in range(10)]
+
+if (1 in arg.d): # plot x and y separately against t
   fig, ax = plt.subplots()
   for n in range(nobjs):
     a = 1 # alpha
     k1=0.5; k2=1.5 # min/max color value
-    k = k1 + (k2-k1) * n/(nobjs-1)
+    k = k1 + (k2-k1) * n/max(nobjs-1, 1)
     on = min(k, 1)
     off = max(0, k-1)
     r = [on,off,off,a]; g = [off,on,off,a]; b = [off,off,on,a]
@@ -67,9 +70,10 @@ if (arg.d[0] == 1): # plot x and y separately against t
   ax.set_xlabel("Timestep $t_i$")
   ax.set_ylabel("Position")
   ax.legend()
+  plt.show()
 
 
-if (arg.d[0] == 2): # 2D position plot
+if (2 in arg.d): # 2D position plot
   fig, ax = plt.subplots()
   fig.set_tight_layout(True)
 
@@ -87,12 +91,15 @@ if (arg.d[0] == 2): # 2D position plot
   ax.set_title(f"System State Evolution, $dt = {tstep}$")
   ax.set_xlabel("$x$ Position")
   ax.set_ylabel("$y$ Position")
+  plt.show()
 
 
-if (arg.d[0] == 3): # conservation of energy and momentum
+if (3 in arg.d): # conservation of energy and momentum
   fig, axs = plt.subplots(1, 3)
   fig.set_tight_layout(True)
-  sysE = np.ndarray(nsteps+1)
+  sysE = np.zeros(nsteps+1)
+  sysPx = np.zeros(nsteps+1)
+  sysPy = np.zeros(nsteps+1)
 
   for n in range(nobjs):
     m = masses[n]
@@ -103,16 +110,21 @@ if (arg.d[0] == 3): # conservation of energy and momentum
     yvels = data[n*colsPerObj + 3]
     rots = data[n*colsPerObj + 4]
     rvel = data[n*colsPerObj + 5]
-    gh = -(sys['g_y'] * (ys - ys.min()) + sys['g_x'] * (xs - xs.min()))
 
-    KE = 0.5 * (m * (xvels*xvels + yvels*yvels) + I * rvel*rvel)
-    U = m * gh
-    E = KE+U
+    px = m * xvels
+    py = m * yvels
+
+    KE = 0.5 * (m*(xvels*xvels + yvels*yvels) + I*rvel*rvel) # mv^2 + Iω^2
+    U = -m * ( sys['g_y']*(ys - ys.min()) + sys['g_x']*(xs - xs.min()) ) # mgh
+    E = KE + U
+
     sysE += E
+    sysPx += px
+    sysPy += py
 
     a = 0.5 # alpha
     k1=0.4; k2=1.6 # min/max color value
-    k = k1 + (k2-k1) * n/(nobjs-1)
+    k = k1 + (k2-k1) * n/max(nobjs-1, 1)
     on = min(k, 1)
     off = max(0, k-1)
     r = [on,off,off,a]; g = [off,on,off,a]; b = [off,off,on,a]
@@ -123,9 +135,11 @@ if (arg.d[0] == 3): # conservation of energy and momentum
 
     axs[1].plot(KE, c=r, label="Kinetic $T$" if doLabel else None)
     axs[1].plot(U, c=g, label="Potential $U$" if doLabel else None)
-    axs[1].plot(E, c=b, label="Total $E$" if doLabel else None)
+    axs[1].plot(E, c=b, label="$E=T+U$" if doLabel else None)
 
   axs[2].plot(sysE, label="Total $E$")
+  axs[2].plot(sysPx, label="Total $P_x$")
+  axs[2].plot(sysPy, label="Total $P_y$")
 
   axs[0].set_title("Object Momenta")
   axs[0].legend()
@@ -135,5 +149,4 @@ if (arg.d[0] == 3): # conservation of energy and momentum
   axs[1].legend()
   axs[2].set_title("System-Wide Conservation")
   axs[2].legend()
-
-plt.show()
+  plt.show()

@@ -295,14 +295,16 @@ class EulerPairwise : public Simulator {
     // speculatively apply physics to each dynamic object, ignoring potential collisions
     for (int i=0; i < nphys; i++) {
       Dynamic* thisphys = physObjs[i];
-      thisphys->force += globalForce * tstep;
+      thisphys->force += globalForce;
       thisphys->velocity += thisphys->force * tstep;
       thisphys->rotspeed += thisphys->torque * tstep;
       thisphys->position += thisphys->velocity * tstep;
-      thisphys->rotation += thisphys->rotspeed * tstep;
+      if (thisphys->rotspeed != 0) {
+        thisphys->rotation += thisphys->rotspeed * tstep;
+        thisphys->updateAABB();
+      }
       thisphys->force = vec2(0,0); // flush the accumulated forces
       thisphys->torque = 0;
-      thisphys->updateAABB();
     }
 
     // iterate through objects to check collisions (pairwise)

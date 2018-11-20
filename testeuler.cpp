@@ -81,8 +81,8 @@ int main(int argc, char* argv[]) {
     stats[0] = floor;
 
   } else if (scene == 2) { // two boxes hitting each other; two walls
-    Dynamic* boxL = new Dynamic(boxverts, 4, vec2(-5, 0), 0,0, vec2(1,  0));
-    Dynamic* boxR = new Dynamic(boxverts, 4, vec2(5,  0), 0,0, vec2(-1, 0));
+    Dynamic* boxL = new Dynamic(boxverts, 4, vec2(-5, 0), 0,0, vec2(3,  0));
+    Dynamic* boxR = new Dynamic(boxverts, 4, vec2(5,  0), 0,0, vec2(-3, 0));
     Rigidbody* wallL = new Rigidbody(floorverts, 4, vec2(-10.5, 0), 1.57);
     Rigidbody* wallR = new Rigidbody(floorverts, 4, vec2(10.5, 0), 1.57);
     Rigidbody* wallB = new Rigidbody(floorverts, 4, vec2(0, -10.5));
@@ -126,6 +126,8 @@ int main(int argc, char* argv[]) {
   } else {
     sim->runFullSimulation();
   }
+  sim->mode = Sim_Timer;
+  sim->runFullSimulation();
 
   return 0;
 }
