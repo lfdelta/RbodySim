@@ -14,4 +14,4 @@ continuous:
 	clang++ testcontinuous.cpp -o testcont
 
 clean:
-	rm ./testeuler ; rm ./testrbody ; rm *~ *.dyn *.sys *.sta *.sim
+	rm ./testeuler ; rm ./testrbody ; rm ./testcont ; rm *~ *.dyn *.sys *.sta *.sim

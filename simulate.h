@@ -8,7 +8,7 @@
 
 typedef Eigen::Vector2f vec2;
 typedef Eigen::Matrix2f mat2;
-#define EPSILON 0.00000001f
+#define EPSILON 0.00001f
 
 
 
@@ -18,6 +18,14 @@ float sign(const float x) {
 
 float clamp(const float v, const float min, const float max) {
   return (v < min) ? min : ((v > max) ? max : v);
+}
+
+inline int min(const int a, const int b) {
+  return (a < b) ? (a) : (b);
+}
+
+inline int max(const int a, const int b) {
+  return (a > b) ? (a) : (b);
 }
 
 // takes an angle, t, in radians

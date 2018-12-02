@@ -36,6 +36,41 @@ void edgeUV(const vec2 A, const vec2 B, float& u, float& v) {
   v = -normz * A.dot(d);
 }
 
+// returns the point which is farthest in the direction of proj
+//   (whose projection along the vector is greatest)
+MinkVert SupportPoint(MinkVert* verts, int nverts, vec2 proj) {
+  MinkVert maxvert = verts[0];
+  float maxdist = proj.dot(maxvert.pos);
+
+  for (int i=1; i < nverts; i++) {
+    float d = proj.dot(verts[i].pos);
+    if (d > maxdist) {
+      maxdist = d;
+      maxvert = verts[i];
+    }
+  }
+
+  return maxvert;
+}
+
+// returns the index of the vertex which is farthest in the direction
+//   of proj (whose projection along the vector is greatest)
+int SupportPoint(vec2* verts, int nverts, vec2 proj) {
+  int maxvert = 0;
+  float maxdist = proj.dot(verts[0]);
+
+  for (int i=1; i < nverts; i++) {
+    float d = proj.dot(verts[i]);
+    if (d > maxdist) {
+      maxdist = d;
+      maxvert = i;
+    }
+  }
+
+  return maxvert;
+}
+
+
 // represents a point, segment, or triangle
 // used by GJK to determine collisions
 class Simplex {
@@ -44,10 +79,18 @@ public:
   char nverts;
 
   Simplex(const MinkVert v) {
+    initialize(v);
+  }
+
+  Simplex() {
+    nverts = 0;
+  }
+
+
+  void initialize(const MinkVert v) {
     verts[0] = v;
     nverts = 1;
   }
-
 
   // adds a new simplex point at the end
   void insertPoint(MinkVert v) {
@@ -165,8 +208,8 @@ public:
 // takes the nearest features on two rigidbodies, and performs root-finding on the
 //   point where a separating axis is crossed in order to perform conservative advancement
 class RootFinder {
-  // which features define the separating edge?
-  enum AxisType {
+private:
+  enum AxisType { // stores which features define the separating edge
     AxisA,
     AxisB,
     AxisBoth
@@ -175,63 +218,148 @@ class RootFinder {
 public:
   Rigidbody *A, *B;
   int Aind, Bind; // indices to the points on A and B which we are separating
-  int edge[2]; // indices to the edge defining separating axis
+  int nhat; // used for edge-vertex resolution (refers to index of edge normal)
+  vec2 axis; // used for vertex-vertex resolution (no edge normal to reference)
   AxisType type;
-  float t1, t2, t, dt;
+  float t1, t2, t;
+  float tolerance;
 
-  RootFinder(Rigidbody* rbA, Rigidbody* rbB, Simplex* S, float tstart, float tend, float tstep)
-  : A(rbA), B(rbB), t1(tstart), t2(tend), dt(tstep) {
+  // takes tstart in [0, 1) as the fraction of the timestep to begin searching from
+  // returns the time, [tstart, tstep], at which the bodies cross the separating axis within distance tol
+  RootFinder(Rigidbody* rbA, Rigidbody* rbB, Simplex* S, float tstart, float tstep, float tol)
+  : A(rbA), B(rbB), t1(tstart), tolerance(tol) {
     MinkVert a, b;
-    vec2 axis;
-    switch (S->nverts) {
-      case 1:
-        a = S->verts[0];
-        Aind = a.Aind;
-        Bind = b.Bind;
-        edge[1] = Bind;
-        edge[0] = Aind;
-        type = AxisBoth;
-        break;
 
-      case 2:
-        a = S->verts[0];
-        b = S->verts[1];
-        Aind = a.Aind;
-        Bind = a.Bind;
-        if (a.Aind == b.Aind) {
-          edge[1] = a.Bind;
-          edge[0] = b.Bind;
-          type = AxisB;
-          axis = B->vertices[edge[1]] - B->vertices[edge[0]]; // parallel to edge
-          axis = vec2(-axis[1], axis[0]); // perpendicular to edge
-          if (axis.dot(B->vertices[Bind]) > axis.dot(A->vertices[Aind])) {
-            edge[0] = a.Bind; // ensure axis points from A to B
-            edge[1] = b.Bind;
-          }
-        } else if (a.Bind == b.Bind) {
-          edge[1] = a.Aind;
-          edge[0] = b.Aind;
-          type = AxisA;
-          axis = A->vertices[edge[1]] - A->vertices[edge[0]];
-        }
+    if (S->nverts == 1) {
+      a = S->verts[0];
+      type = AxisBoth;
 
-        break;
+      // Aind, Bind are support points (vertices with deepest penetration) at end time
+      axis = B->worldVertLerp(a.Bind, t1) - A->worldVertLerp(a.Aind, t1);
+      vec2 Afin[A->nverts], Bfin[B->nverts];
+      A->worldCoordsLerp(Afin, tstep);
+      B->worldCoordsLerp(Bfin, tstep);
+      Aind = SupportPoint(Afin, A->nverts, axis);
+      Bind = SupportPoint(Bfin, B->nverts, -axis);
 
-      case 3:
-      default:
-        Aind = Bind = -1;
-        //nhat = vec2(0,0);
-        break; // overlapping -> no separating axis
+    } else if (S->nverts == 2) {
+      a = S->verts[0];
+      b = S->verts[1];
+      Aind = a.Aind;
+      Bind = b.Bind;
+
+      // take the normal vector from the separating edge
+      if (a.Aind == b.Aind) {
+        type = AxisB;
+        nhat = min(a.Bind, b.Bind);
+      } else if (a.Bind == b.Bind) {
+        type = AxisA;
+        nhat = min(a.Aind, b.Aind);
+      }
+
+    } else { // overlapping -> no separating axis
+      fprintf(stderr, "ERROR: RootFinder give bad simplex size %d\n", S->nverts);
+      Aind = Bind = nhat = -1;
     }
 
     t = t1;
+    t2 = tstep;
+  }
+
+  // returns the time, [t1, t2), where the reference features cross their separating axis
+  // returns t < 0 if the objects are not penetrating at the end of the timestep
+  float FindRoot() {
+    float d;
+    vec2 n;
+
+    switch(type) {
+      case AxisA:
+        // if the root is not bracketed, exit
+        n = A->worldNormLerp(nhat, t2);
+        d = n.dot(B->worldVertLerp(Bind, t2)) - n.dot(A->worldVertLerp(Aind, t2));
+        if (d > 0)
+          return -1;
+        n = A->worldNormLerp(nhat, t1);
+        d = n.dot(B->worldVertLerp(Bind, t1)) - n.dot(A->worldVertLerp(Aind, t1));
+        if (d < tolerance)
+          return t1;
+
+        while (true) {
+          n = A->worldNormLerp(nhat, t);
+          d = n.dot(B->worldVertLerp(Bind, t)) - n.dot(A->worldVertLerp(Aind, t));
+
+          if (abs(d) < tolerance)
+            return t;
+
+          // bisection root-finding
+          if (d < 0)
+            t2 = t;
+          else
+            t1 = t;
+          t = 0.5 * (t1+t2);
+        }
+
+      case AxisB:
+        // if the root is not bracketed, exit
+        n = B->worldNormLerp(nhat, t2);
+        d = n.dot(A->worldVertLerp(Aind, t2)) - n.dot(B->worldVertLerp(Bind, t2));
+        if (d > 0)
+          return -1;
+        n = B->worldNormLerp(nhat, t1);
+        d = n.dot(A->worldVertLerp(Aind, t1)) - n.dot(B->worldVertLerp(Bind, t1));
+        if (d < tolerance)
+          return t1;
+
+        while (true) {
+          n = B->worldNormLerp(nhat, t);
+          d = n.dot(A->worldVertLerp(Aind, t)) - n.dot(B->worldVertLerp(Bind, t));
+
+          if (abs(d) < tolerance)
+            return t;
+
+          // bisection root-finding
+          if (d < 0)
+            t2 = t;
+          else
+            t1 = t;
+          t = 0.5 * (t1+t2);
+        }
+        break;
+
+      case AxisBoth:
+        // if the root is not bracketed, exit
+        d = axis.dot(B->worldVertLerp(Bind, t2)) - axis.dot(A->worldVertLerp(Aind, t2));
+        if (d > 0)
+          return -1;
+        d = axis.dot(B->worldVertLerp(Bind, t1)) - axis.dot(A->worldVertLerp(Aind, t1));
+        if (d < tolerance)
+          return t1;
+
+        while (true) {
+          d = axis.dot(B->worldVertLerp(Bind, t)) - axis.dot(A->worldVertLerp(Aind, t));
+
+          if (abs(d) < tolerance)
+            return t;
+
+          // bisection root-finding
+          if (d < 0)
+            t2 = t;
+          else
+            t1 = t;
+          t = 0.5 * (t1+t2);
+        }
+        break;
+
+      default:
+        fprintf(stderr, "ERROR: FindRoot given bad type enum %d\n", type);
+        return -1;
+    }
   }
 };
 
 
-// returns the "time", between 0 and 1, at which two spheres A and B (with radius R)
-//   collide, assuming that they move at constant velocity between their initial
-//   and final positions
+// returns the "time", between 0 and 1, at which two spheres A and B (with radius R) collide,
+//   assuming that they move at constant velocity between their initial and final positions
 // returns t < 0 if there is no collision between time 0 and time 1
 // reference: https://www.toptal.com/game/video-game-physics-part-ii-collision-detection-for-solid-objects
 //   (and a bunch of algebra)
@@ -256,23 +384,22 @@ float SphereCast(vec2 A1, vec2 A2, float Ra, vec2 B1, vec2 B2, float Rb) {
   return (t <= 1) ? t : -1;
 }
 
-
-// returns the point which is farthest in the direction of proj
-//   (whose projection along the vector is greatest)
-MinkVert SupportPoint(MinkVert* verts, int nverts, vec2 proj) {
-  MinkVert maxvert = verts[0];
-  float maxdist = proj.dot(maxvert.pos);
-
-  for (int i=1; i < nverts; i++) {
-    float d = proj.dot(verts[i].pos);
-    if (d > maxdist) {
-      maxdist = d;
-      maxvert = verts[i];
-    }
-  }
-
-  return maxvert;
+// wrapper for SphereCast
+float SphereOverlap(Dynamic* A, Dynamic* B, float tstep) {
+  vec2 A1 = A->position;
+  vec2 A2 = A1 + tstep * A->velocity;
+  vec2 B1 = B->position;
+  vec2 B2 = B1 + tstep * B->velocity;
+  return SphereCast(A1, A2, A->radius, B1, B2, B->radius);
 }
+
+float SphereOverlap(Dynamic* A, Static* B, float tstep) {
+  vec2 A1 = A->position;
+  vec2 A2 = A1 + tstep * A->velocity;
+  vec2 B1 = B->position;
+  return SphereCast(A1, A2, A->radius, B1, B1, B->radius);
+}
+
 
 
 // returns the nearest square distance between minkowski difference and origin
@@ -281,6 +408,7 @@ MinkVert SupportPoint(MinkVert* verts, int nverts, vec2 proj) {
 // reference: so many, but mostly Erin Catto GDC 2013
 float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqtolerance) {
   while (true) {
+    // return if the minkowski difference is within threshold of the origin
     nearest = S->pointNearestOrigin();
     float sqdist = nearest.dot(nearest);
       if (sqdist < sqtolerance) {
@@ -288,6 +416,7 @@ float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqto
       return 0;
     }
 
+    // return if this iteration didn't bring us any closer to the origin
     MinkVert support = SupportPoint(minkverts, nverts, -nearest);
     if (S->contains(support))
       return sqdist;
@@ -296,100 +425,113 @@ float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqto
 }
 
 
-// uses the minkowksi vertices to determine which features on the corresponding
-//   rigidbodies are nearest one another, and returns the normal vector
-//   of a separating axis, pointing from A to B
-// vec2 ComputeSeparatingAxis(Rigidbody* A, Rigidbody* B, Simplex* S) {
-  // int Ainds[2], Binds[2];
-  // MinkVert a, b;
-  // switch (S->nverts) {
-  //   case 1:
-  //     a = S->verts[0];
-  //     return A->vertices[a.Aind] - B->vertices[a.Bind];
-  //   case 2:
-  //     a = S->verts[0];
-  //     b = S->verts[1];
-  //     if (a.Aind == b.Aind)
-  //       return
-  //     return;
-  //   case 3:
-  //   default:
-  //     return vec2(0,0); // overlapping -> no separating axis
-  // }
-// }
-
 
 // performs root-finding on the distance between A and B, approximated as constant-velocity movers
-// takes bracketing start and end times to search for collision, in the range of [0, 1)
-// returns the time [0,1] at which collision first occurs
-float TimeOfImpactGJK(Rigidbody* A, Rigidbody* B, float t1, float t2=1, float threshold=0.00001) {
-  t1 = fmin(0, t1 - 0.1); // backtrack to slightly before the earliest possible penetration point
-  t2 = fmin(1, t2); // only advance to the end of the timestep
-  float t = 0.5 * (t1+t2); // current probe time
+// takes bracketing start and end times to search for collision, in the range of [0, tstep)
+// returns the time [0,tstep] at which collision first occurs
+// returns a negative value if the objects are not colliding at t=tstep
+float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, float threshold=0.00001) {
   float sqtolerance = threshold*threshold;
+  float t = t1;
 
-  // compute the minkowski difference
-  // critical hypothesis: since GJK relies on support points, computing the
-  //   convex hull on the minkowski difference is not necessary for algorithmic accuracy
-
-
-  //// ***** need to compute minkDiff using current positions based upon partial time integration
+  // set up helper objects
+  Simplex* S = new Simplex();
   int nMVs = A->nverts * B->nverts;
   MinkVert* minkDiff = (MinkVert*)malloc(nMVs * sizeof(MinkVert*));
-  for (int i=0; i < A->nverts; i++) {
-    for (int j=0; j < B->nverts; j++)
-      minkDiff[B->nverts*i + j] = MinkVert(A->vertices[i], i, B->vertices[j], j);
+
+  // stop if we detect non-collision, or if we advance beyond the end of the current timestep
+  while (t >= 0 && t < tstep) {
+    // compute the minkowski difference at the current time
+    // critical hypothesis: since GJK relies on support points, computing the convex hull on
+    //   the minkowski difference is not necessary for algorithmic accuracy, just for speed
+    for (int i=0; i < A->nverts; i++) {
+      for (int j=0; j < B->nverts; j++)
+        minkDiff[B->nverts*i + j] = MinkVert(A->worldVertLerp(i, t), i, B->worldVertLerp(j, t), j);
+    }
+
+    // initialize the simplex, and run GJK to compute nearest points
+    S->initialize(minkDiff[0]);
+    vec2 nearest;
+    float sqdist = GJK(minkDiff, nMVs, S, nearest, sqtolerance);
+    if (sqdist < sqtolerance)
+      break; // current distance (and time) is sufficiently close
+
+    // perform conservative advancement
+    RootFinder advancement(A, B, S, t, tstep, threshold);
+    t = advancement.FindRoot();
   }
 
-  // initialize the simplex, and run GJK to compute nearest points
-  Simplex* S = new Simplex(minkDiff[0]);
-  vec2 nearest;
-  float sqdist = GJK(minkDiff, nMVs, S, nearest, sqtolerance);
-  float lastSqdist = sqdist;
-
-  if (sqdist == 0) {
-    t2 = t;
-    t = 0.5 * (t1+t2);
-    /// ................................... reverse time and repeat GJK
-  } else if (sqdist < sqtolerance) {
-    // ...................... compute nearest features (and collision point)
-    return t; // IMPACT !
-  } else {
-    t1 = t;
-    t = 0.5 * (t1+t2);
-    // ............................. advance time and repeat
-  }
-
-  // extract nearest features, and root-find separating axis crossing
-
+  delete S;
   free(minkDiff);
 
-
-  // bilateral advancement:
-  // if (p > oldP)
-  //   return -1 ??
-  // if (p == O)
-  //   t2 = t
-  //   t = (t1 + t2)/2
-  //   repeat GJK
-  // if (p dot p < threshold)
-  //   return t
-  // else
-  //   extract nearest features from simplex -> separating axis
-  //   conservative advancement until axis crossed
-  //   repeat GJK
-  return 0;
+  // return -1 if we advanced beyond the end of the timestep
+  return (t > tstep) ? -1 : t;
 }
 
 
 class ContinuousSim : public Simulator {
   public:
-  ContinuousSim(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs,
+  int physLoops;
+
+  ContinuousSim(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs, const int loops=5,
                 const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
-  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type) {}
+  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops) {}
+
+
+  void staticCollision(Dynamic* d, Static* s) {
+    return;
+  }
+
+  void dynamicCollision(Dynamic* a, Dynamic* b) {
+    return;
+  }
 
   void simulateTimestep() {
-    return;
+    // apply forces to each object
+    for (int i=0; i < nphys; i++) {
+      Dynamic* thisphys = physObjs[i];
+      thisphys->force += globalForce;
+      thisphys->velocity += thisphys->force * tstep * thisphys->invmass;
+      thisphys->rotspeed += thisphys->torque * tstep * thisphys->invinertia;
+
+      thisphys->force = vec2(0,0); // flush the accumulated forces
+      thisphys->torque = 0;
+    }
+
+    // iterate through objects to check collisions (pairwise)
+    for (int t=0; t < physLoops; t++) {
+
+      if (nphys == 1) {
+        Dynamic* thisphys = physObjs[0];
+        for (int j=0; j < nstatics; j++) {
+          Static* other = staticObjs[j];
+          if (SphereOverlap(thisphys, other, tstep))
+            staticCollision(thisphys, other);
+        }
+      } else { // nphys > 1
+        for (int i=0; i < nphys-1; i++) {
+          Dynamic* thisphys = physObjs[i];
+          for (int j=i+1; j < nphys; j++) { // all dynamic-dynamic
+            Dynamic* other = physObjs[j];
+            if (SphereOverlap(thisphys, other, tstep))
+              dynamicCollision(thisphys, other);
+          }
+
+          for (int j=0; j < nstatics; j++) { // all but one dynamic-static
+            Static* other = staticObjs[j];
+            if (SphereOverlap(thisphys, other, tstep))
+              staticCollision(thisphys, other);
+          }
+        }
+
+        Dynamic* thisphys = physObjs[nphys-1];
+        for (int j=0; j < nstatics; j++) { // final dynamic-static
+          Static* other = staticObjs[j];
+          if (SphereOverlap(thisphys, other, tstep))
+            staticCollision(thisphys, other);
+        }
+      }
+    } // end physloop
   }
 };
 

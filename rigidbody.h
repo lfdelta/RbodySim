@@ -54,14 +54,8 @@ public:
     // compute normal vectors
     for (int i=0; i < nverts; i++) {
       vec2 v = vertices[(i+1)%nverts] - vertices[i];
-      if (abs(v[0]) < EPSILON) {
-        normals[i] = vec2(sign(v[1]), 0);
-      } else {
-        float m = v[1]/v[0];
-        float ny = -sign(v[0]) * sqrt(1 / (1 + m*m));
-        float nx = -m * ny;
-        normals[i] = vec2(nx, ny);
-      }
+      vec2 n(v[1], -v[0]);
+      normals[i] = n.normalized();
     }
 
     updateRotMat();
@@ -96,6 +90,15 @@ public:
   // takes a vertex index and a time to integrate along
   // returns the vertex's world position, linearly interpolated
   virtual vec2 worldVertLerp(int ind, float dt) = 0;
+
+  // takes a normal vector index and a time to integrate along
+  // returns the normal's world orientation, linearly interpolated
+  virtual vec2 worldNormLerp(int ind, float dt) = 0;
+
+  // calculates all vertices' world positions, lerped by timestep t,
+  //   and stores the values in the out-parameter,
+  //   which must be of length nverts
+  virtual void worldCoordsLerp(vec2* outVerts, float dt) = 0;
 };
 
 
@@ -128,6 +131,21 @@ public:
     mat2 rot = RotationMatrix(rotation + dt * rotspeed);
     vec2 pos = position + velocity*dt;
     return pos + (rot * vertices[ind]);
+  }
+
+  // takes a normal vector index and a time to integrate along
+  // returns the normal's world orientation, linearly interpolated
+  vec2 worldNormLerp(int ind, float dt) {
+    mat2 rot = RotationMatrix(rotation + dt * rotspeed);
+    return rot * normals[ind];
+  }
+
+  // calculates all vertices' world positions, lerped by timestep t,
+  //   and stores the values in the out-parameter,
+  //   which must be of length nverts
+  void worldCoordsLerp(vec2* outVerts, float dt) {
+    for (int i=0; i < nverts; i++)
+      outVerts[i] = worldVertLerp(i, dt);
   }
 };
 
@@ -175,6 +193,15 @@ public:
 
   vec2 worldVertLerp(int ind, float dt) {
     return bakedVerts[ind];
+  }
+
+  vec2 worldNormLerp(int ind, float dt) {
+    return bakedNorms[ind];
+  }
+
+  void worldCoordsLerp(vec2* outVerts, float dt) {
+    for (int i=0; i < nverts; i++)
+      outVerts[i] = bakedVerts[i];
   }
 };
 
