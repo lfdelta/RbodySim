@@ -8,7 +8,7 @@ import argparse
 # parsing arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('file', metavar='f', type=str, help="File prefix to analyze (.csv and .sys)")
-parser.add_argument('-d', metavar='displaymode', type=int, nargs=1, default=[2])
+parser.add_argument('-d', metavar='displaymode', type=int, nargs=1, default=[0])
 arg = parser.parse_args()
 
 
@@ -20,12 +20,22 @@ for i in range(len(sysdata[0])):
 nsteps = int(sys['nsteps'])
 tstep = sys['tstep']
 
-dyndata = np.loadtxt(arg.file+".dyn", dtype=float, delimiter=",") # dynamic inertias
+dyndata = np.loadtxt(arg.file+".dyn", dtype=str, delimiter="\n") # dynamic inertias and vertices
 colsPerDyn = 2
 masses = []; inertias = []
-for i in range(0, len(dyndata), colsPerDyn):
-  masses.append(dyndata[i])
-  inertias.append(dyndata[i+1])
+dynXs = []; dynYs = []
+for row, datastr in enumerate(dyndata):
+  data = datastr.split(',')
+  if row % 3 == 0:
+    masses.append(float(data[0]))
+    inertias.append(float(data[1]))
+  elif row % 3 == 1:
+    xs = np.array(data + [data[0]], dtype=float)
+    dynXs += [xs]
+  else:
+    ys = np.array(data + [data[0]], dtype=float)
+    dynYs += [ys]
+
 
 statdata = np.loadtxt(arg.file+".sta", dtype=float, delimiter=",") # static vertices
 staticXs = []; staticYs = []
@@ -41,8 +51,8 @@ for i in range(0, len(statdata), 2):
 
 # parse simulated data
 colsPerObj = 6 # x, y, vx, vy, angle, rotspeed
-data = np.loadtxt(arg.file+".sim", dtype=float, delimiter=",", unpack=True)
-nobjs = len(data)//colsPerObj
+simdata = np.loadtxt(arg.file+".sim", dtype=float, delimiter=",", unpack=True)
+nobjs = len(simdata)//colsPerObj
 
 
 
@@ -63,8 +73,8 @@ if (1 in arg.d): # plot x and y separately against t
     r = [on,off,off,a]; g = [off,on,off,a]; b = [off,off,on,a]
     doLabel = (n == nobjs//2)
 
-    ax.plot(data[n*colsPerObj], c=r, label=f"$x$" if doLabel else None) # x position
-    ax.plot(data[n*colsPerObj + 1], c=g, label=f"$y$" if doLabel else None) # y position
+    ax.plot(simdata[n*colsPerObj], c=r, label=f"$x$" if doLabel else None) # x position
+    ax.plot(simdata[n*colsPerObj + 1], c=g, label=f"$y$" if doLabel else None) # y position
 
   ax.set_title(f"System State Evolution, $dt = {tstep}$")
   ax.set_xlabel("Timestep $t_i$")
@@ -81,9 +91,25 @@ if (2 in arg.d): # 2D position plot
     ax.plot(staticXs[s], staticYs[s], 'k-')
 
   for n in range(nobjs):
-    xs = data[n*colsPerObj]
-    ys = data[n*colsPerObj + 1]
-    timeplot = ax.scatter(xs, ys, marker=markers[n%len(markers)], edgecolors=(0,0,0,0.5), c=range(nsteps+1), cmap=cmap.Reds, alpha=0.5)
+    xs = simdata[n*colsPerObj]
+    ys = simdata[n*colsPerObj + 1]
+    rots = simdata[n*colsPerObj + 4]
+
+    # draw all of the vertices
+    c, s = np.cos(rots), np.sin(rots)
+    for t in range(nsteps+1):
+      a = 1 # alpha
+      k1=1.5; k2=0.5 # min/max color value
+      k = k1 + (k2-k1) * t/max(nsteps, 1)
+      on = min(k, 1)
+      off = max(0, k-1)
+      m = [on,off,on,a]
+
+      rotmat = np.matrix(((c[t],-s[t]), (s[t], c[t])))
+      rotverts = np.array(rotmat * np.matrix([dynXs[n], dynYs[n]]))
+      ax.plot(rotverts[0] + xs[t], rotverts[1] + ys[t], linestyle='-', color=cmap.Reds(t/max(nsteps,1)), alpha=0.5)
+
+    timeplot = ax.scatter(xs, ys, marker=markers[n%len(markers)], edgecolors='none', c=range(nsteps+1), cmap=cmap.Reds, alpha=0.5)
 
   cbar = fig.colorbar(timeplot, ticks=[0, nsteps])
   cbar.ax.set_yticklabels(['$i=0$', f'$i={nsteps}$'])
@@ -91,6 +117,8 @@ if (2 in arg.d): # 2D position plot
   ax.set_title(f"System State Evolution, $dt = {tstep}$")
   ax.set_xlabel("$x$ Position")
   ax.set_ylabel("$y$ Position")
+  ax.set_aspect('equal')
+
   plt.show()
 
 
@@ -104,12 +132,12 @@ if (3 in arg.d): # conservation of energy and momentum
   for n in range(nobjs):
     m = masses[n]
     I = inertias[n]
-    xs = data[n*colsPerObj]
-    ys = data[n*colsPerObj + 1]
-    xvels = data[n*colsPerObj + 2]
-    yvels = data[n*colsPerObj + 3]
-    rots = data[n*colsPerObj + 4]
-    rvel = data[n*colsPerObj + 5]
+    xs = simdata[n*colsPerObj]
+    ys = simdata[n*colsPerObj + 1]
+    xvels = simdata[n*colsPerObj + 2]
+    yvels = simdata[n*colsPerObj + 3]
+    rots = simdata[n*colsPerObj + 4]
+    rvel = simdata[n*colsPerObj + 5]
 
     px = m * xvels
     py = m * yvels

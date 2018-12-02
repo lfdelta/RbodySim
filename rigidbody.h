@@ -12,8 +12,9 @@ public:
   int nverts;
   vec2 position; // world space
   float rotation; // radians
-  float mass;
-  float inertia; // moment of inertia
+  float mass, invmass;
+  float inertia, invinertia; // moment of inertia
+  float radius; // distance from CoM to farthest vertex
   vec2* normals; // normal vector to the edge; normal[i] between vertices[i] and vertices[i+1]
   mat2 rotmat; // rotation matrix; should be updated as needed with updateRotMat()
   vec2 AABB[2]; // local axis-aligned bounding box; lower-left and upper-right
@@ -35,13 +36,20 @@ public:
     CoM = CenterOfMass(verts, nverts, area);
 
     // shift the object's local origin to its center of mass
-    for (int i=0; i < nverts; i++)
+    // accumulate radius
+    float radsq = 0;
+    for (int i=0; i < nverts; i++) {
       vertices[i] = verts[i] - CoM;
+      radsq = fmax(radsq, vertices[i].dot(vertices[i]));
+    }
+    radius = sqrt(radsq);
 
     if (mass == 0)
       mass = area;
 
     inertia = MomentOfInertia(vertices, nverts, mass);
+    invmass = 1/mass;
+    invinertia = 1/inertia;
 
     // compute normal vectors
     for (int i=0; i < nverts; i++) {
@@ -90,38 +98,6 @@ public:
     }
   }
 };
-
-
-// class StaticBody: public Rigidbody {
-// public:
-
-//   StaticBody(const vec2* verts, const int sz, const vec2& pos=vec2(0,0), const float rot=0)
-//   :Rigidbody(verts, sz, pos, rot) {
-//     bakeWorldCoords();
-//   }
-
-//   // stores the AABB and vertices in world coordinates, for collision-checking efficiency
-//   void bakeWorldCoords() {
-//     for (int i=0; i < nverts; i++) {
-//       vertices[i] = position + (rotmat * vertices[i]);
-//       normals[i] = rotmat * normals[i];
-//     }
-
-//     float minX=vertices[0][0], minY=vertices[0][1];
-//     float maxX=minX, maxY=minY;
-//     for(int i=1; i<nverts; i++) {
-//       vec2 vert = vertices[i];
-//       float x = vert[0];
-//       float y = vert[1];
-//       if (x < minX) {minX = x;}
-//       if (x > maxX) {maxX = x;}
-//       if (y < minY) {minY = y;}
-//       if (y > maxY) {maxY = y;}
-//     }
-//     AABB[0] = vec2(minX, minY);
-//     AABB[1] = vec2(maxX, maxY);
-//   }
-// };
 
 
 

@@ -27,6 +27,7 @@ void printProperties(const Rigidbody* rbody, const std::string title="") {
     std::cout << " {" << worldnormals[i][0] << ", " << worldnormals[i][1] << "}";
   std::cout << "\n";
   std::cout << "Local CoM: {" << CoM[0] << ", " << CoM[1] << "}\n";
+  std::cout << "Radius: " << rbody->radius << "\n";
   std::cout << "Pos: {" << rbody->position[0] << ", " << rbody->position[1] << "}\n";
   std::cout << "Area: " << area << "\n";
   std::cout << "Mass: " << rbody->mass << "\n";

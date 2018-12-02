@@ -35,6 +35,7 @@
 sim
 testeuler
 testrbody
+testcont
 *.sim
 *.sys
 *.sta

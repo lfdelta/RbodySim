@@ -104,11 +104,22 @@ public:
     fprintf(outSYS, "tstep,nsteps,g_x,g_y\n");
     fprintf(outSYS, "%f,%d,%f,%f\n", tstep, nsteps, globalForce[0], globalForce[1]);
 
-    for (int i=0; i < nphys-1; i++) {
+    // print out object properties and local-space vertices (xs, then ys)
+    for (int i=0; i < nphys; i++) {
       Dynamic* rbody = physObjs[i];
-      fprintf(outDYN, "%f,%f,", rbody->mass, rbody->inertia);
+      fprintf(outDYN, "%f,%f\n", rbody->mass, rbody->inertia);
+
+      vec2* verts = rbody->vertices;
+      int n = rbody->nverts;
+
+      for (int j=0; j < n-1; j++)
+        fprintf(outDYN, "%f,", verts[j][0]);
+      fprintf(outDYN, "%f\n", verts[n-1][0]);
+
+      for (int j=0; j < n-1; j++)
+        fprintf(outDYN, "%f,", verts[j][1]);
+      fprintf(outDYN, "%f\n", verts[n-1][1]);
     }
-    fprintf(outDYN, "%f,%f\n\n", physObjs[nphys-1]->mass, physObjs[nphys-1]->inertia);
 
     // print world-space vertex xs, then ys
     for (int i=0; i < nstatics; i++) {
@@ -240,7 +251,7 @@ class EulerPairwise : public Simulator {
   int physLoops; // number of physics loops per timestep
 
   EulerPairwise(Dynamic** phys, const int nphysObjs, Rigidbody** statics, const int nstatObjs, const int loops=5,
-               const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
+                const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
   :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops) {}
 
   // if SAT collision, move d and apply forces
@@ -277,12 +288,11 @@ class EulerPairwise : public Simulator {
       a->position -= aRatio * MTV;
       b->position += bRatio * MTV;
 
-      // momentum conserved parallel to contact plane
-      // A and B's normal velocities changed (aPerpvel-bPerpvel changes sign)
+      // solve conservation of momentum for collision
+      // A and B's velocities parallel to contact plane unchanged
+      // A and B's relative velocity, normal to contact plane, changes sign
       float aPerpvel = MTVdir.dot(a->velocity);
       float bPerpvel = MTVdir.dot(b->velocity);
-      // a->velocity += MTVdir*(-aPerpvel + elasticity*bPerpvel);
-      // b->velocity += MTVdir*(-bPerpvel + elasticity*aPerpvel);
       float dv = aPerpvel - bPerpvel;
       float aNewPerp = (a->mass*aPerpvel + b->mass*(bPerpvel - elasticity*dv)) / (a->mass + b->mass);
       float bNewPerp = aNewPerp + elasticity*dv;
@@ -296,8 +306,8 @@ class EulerPairwise : public Simulator {
     for (int i=0; i < nphys; i++) {
       Dynamic* thisphys = physObjs[i];
       thisphys->force += globalForce;
-      thisphys->velocity += thisphys->force * tstep;
-      thisphys->rotspeed += thisphys->torque * tstep;
+      thisphys->velocity += thisphys->force * tstep * thisphys->invmass;
+      thisphys->rotspeed += thisphys->torque * tstep * thisphys->invinertia;
       thisphys->position += thisphys->velocity * tstep;
       if (thisphys->rotspeed != 0) {
         thisphys->rotation += thisphys->rotspeed * tstep;
