@@ -162,6 +162,73 @@ public:
 };
 
 
+// takes the nearest features on two rigidbodies, and performs root-finding on the
+//   point where a separating axis is crossed in order to perform conservative advancement
+class RootFinder {
+  // which features define the separating edge?
+  enum AxisType {
+    AxisA,
+    AxisB,
+    AxisBoth
+  };
+
+public:
+  Rigidbody *A, *B;
+  int Aind, Bind; // indices to the points on A and B which we are separating
+  int edge[2]; // indices to the edge defining separating axis
+  AxisType type;
+  float t1, t2, t, dt;
+
+  RootFinder(Rigidbody* rbA, Rigidbody* rbB, Simplex* S, float tstart, float tend, float tstep)
+  : A(rbA), B(rbB), t1(tstart), t2(tend), dt(tstep) {
+    MinkVert a, b;
+    vec2 axis;
+    switch (S->nverts) {
+      case 1:
+        a = S->verts[0];
+        Aind = a.Aind;
+        Bind = b.Bind;
+        edge[1] = Bind;
+        edge[0] = Aind;
+        type = AxisBoth;
+        break;
+
+      case 2:
+        a = S->verts[0];
+        b = S->verts[1];
+        Aind = a.Aind;
+        Bind = a.Bind;
+        if (a.Aind == b.Aind) {
+          edge[1] = a.Bind;
+          edge[0] = b.Bind;
+          type = AxisB;
+          axis = B->vertices[edge[1]] - B->vertices[edge[0]]; // parallel to edge
+          axis = vec2(-axis[1], axis[0]); // perpendicular to edge
+          if (axis.dot(B->vertices[Bind]) > axis.dot(A->vertices[Aind])) {
+            edge[0] = a.Bind; // ensure axis points from A to B
+            edge[1] = b.Bind;
+          }
+        } else if (a.Bind == b.Bind) {
+          edge[1] = a.Aind;
+          edge[0] = b.Aind;
+          type = AxisA;
+          axis = A->vertices[edge[1]] - A->vertices[edge[0]];
+        }
+
+        break;
+
+      case 3:
+      default:
+        Aind = Bind = -1;
+        //nhat = vec2(0,0);
+        break; // overlapping -> no separating axis
+    }
+
+    t = t1;
+  }
+};
+
+
 // returns the "time", between 0 and 1, at which two spheres A and B (with radius R)
 //   collide, assuming that they move at constant velocity between their initial
 //   and final positions
@@ -233,22 +300,22 @@ float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqto
 //   rigidbodies are nearest one another, and returns the normal vector
 //   of a separating axis, pointing from A to B
 // vec2 ComputeSeparatingAxis(Rigidbody* A, Rigidbody* B, Simplex* S) {
-//   int Ainds[2], Binds[2];
-//   MinkVert a, b;
-//   switch (S->nverts) {
-//     case 1:
-//       a = S->verts[0];
-//       return A->vertices[a.Aind] - B->vertices[a.Bind];
-//     case 2:
-//       a = S->verts[0];
-//       b = S->verts[1];
-//       if (a.Aind == b.Aind)
-//         return
-//       return;
-//     case 3:
-//     default:
-//       return vec2(0,0); // overlapping -> no separating axis
-//   }
+  // int Ainds[2], Binds[2];
+  // MinkVert a, b;
+  // switch (S->nverts) {
+  //   case 1:
+  //     a = S->verts[0];
+  //     return A->vertices[a.Aind] - B->vertices[a.Bind];
+  //   case 2:
+  //     a = S->verts[0];
+  //     b = S->verts[1];
+  //     if (a.Aind == b.Aind)
+  //       return
+  //     return;
+  //   case 3:
+  //   default:
+  //     return vec2(0,0); // overlapping -> no separating axis
+  // }
 // }
 
 
@@ -293,7 +360,7 @@ float TimeOfImpactGJK(Rigidbody* A, Rigidbody* B, float t1, float t2=1, float th
     // ............................. advance time and repeat
   }
 
-  // extract nearest features
+  // extract nearest features, and root-find separating axis crossing
 
   free(minkDiff);
 
@@ -317,7 +384,7 @@ float TimeOfImpactGJK(Rigidbody* A, Rigidbody* B, float t1, float t2=1, float th
 
 class ContinuousSim : public Simulator {
   public:
-  ContinuousSim(Dynamic** phys, const int nphysObjs, Rigidbody** statics, const int nstatObjs,
+  ContinuousSim(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs,
                 const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
   :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type) {}
 

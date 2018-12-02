@@ -91,12 +91,11 @@ public:
   // calculates the vertices and normals in world coordinates,
   //   and stores the values in the out-parameters,
   //   which must be of length nverts
-  void worldCoords(vec2* outVerts, vec2* outNormals) const {
-    for (int i=0; i < nverts; i++) {
-      outVerts[i] = position + (rotmat * vertices[i]);
-      outNormals[i] = rotmat * normals[i];
-    }
-  }
+  virtual void worldCoords(vec2* outVerts, vec2* outNormals) const = 0;
+
+  // takes a vertex index and a time to integrate along
+  // returns the vertex's world position, linearly interpolated
+  virtual vec2 worldVertLerp(int ind, float dt) = 0;
 };
 
 
@@ -112,6 +111,71 @@ public:
   vec2 force; // units per second squared; flushed with each timestep
   float rotspeed; // rad/s
   float torque; // rad/s/s; flushed with each timestep
+
+  // calculates the vertices and normals in world coordinates,
+  //   and stores the values in the out-parameters,
+  //   which must be of length nverts
+  void worldCoords(vec2* outVerts, vec2* outNormals) const {
+    for (int i=0; i < nverts; i++) {
+      outVerts[i] = position + (rotmat * vertices[i]);
+      outNormals[i] = rotmat * normals[i];
+    }
+  }
+
+  // takes a vertex index and a time to integrate along
+  // returns the vertex's world position, lerped by the timestep t
+  vec2 worldVertLerp(int ind, float dt) {
+    mat2 rot = RotationMatrix(rotation + dt * rotspeed);
+    vec2 pos = position + velocity*dt;
+    return pos + (rot * vertices[ind]);
+  }
+};
+
+
+// a Static Rigid Body, which is fully constrained and does not respond to physics
+class Static : public Rigidbody {
+public:
+  vec2* bakedVerts;
+  vec2* bakedNorms;
+
+  Static(const vec2* verts, const int sz, const vec2& pos=vec2(0,0), const float rot=0, const float m=0)
+  :Rigidbody(verts, sz, pos, rot, m), bakedVerts(new vec2[sz]), bakedNorms(new vec2[sz]) {
+    // bake in final world coordinates
+    for (int i=0; i < nverts; i++) {
+      bakedVerts[i] = position + (rotmat * vertices[i]);
+      bakedNorms[i] = rotmat * normals[i];
+    }
+
+    // bake in final AABB
+    float minX=0, maxX=0, minY=0, maxY=0;
+    for(int i=0; i<nverts; i++) {
+      vec2 vert = bakedVerts[i];
+      float x = vert[0];
+      float y = vert[1];
+      if (x < minX) {minX = x;}
+      if (x > maxX) {maxX = x;}
+      if (y < minY) {minY = y;}
+      if (y > maxY) {maxY = y;}
+    }
+    AABB[0] = vec2(minX, minY);
+    AABB[1] = vec2(maxX, maxY);
+  }
+
+  ~Static() {
+    delete[] bakedVerts;
+    delete[] bakedNorms;
+  }
+
+  void worldCoords(vec2* outVerts, vec2* outNormals) const {
+    for (int i=0; i < nverts; i++) {
+      outVerts[i] = bakedVerts[i];
+      outNormals[i] = bakedNorms[i];
+    }
+  }
+
+  vec2 worldVertLerp(int ind, float dt) {
+    return bakedVerts[ind];
+  }
 };
 
 #endif //_RIGIDBODY_

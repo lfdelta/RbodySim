@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
   int nphys=0, nstat=0;
   vec2 grav(0, -10);
   Dynamic* physs[10];
-  Rigidbody* stats[10];
+  Static* stats[10];
 
   // reusable shapes
   vec2 boxverts[] = {vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,1)};
@@ -74,7 +74,7 @@ int main(int argc, char* argv[]) {
 
   if (scene <= 1) { // box falling onto floor
     Dynamic* box = new Dynamic(boxverts, 4, vec2(0, 5));
-    Rigidbody* floor = new Rigidbody(floorverts, 4, vec2(0, -0.5));
+    Static* floor = new Static(floorverts, 4, vec2(0, -0.5));
 
     nphys = 1; nstat = 1;
     physs[0] = box;
@@ -83,9 +83,9 @@ int main(int argc, char* argv[]) {
   } else if (scene == 2) { // two boxes hitting each other; two walls
     Dynamic* boxL = new Dynamic(boxverts, 4, vec2(-5, 0), 0,0, vec2(3,  0));
     Dynamic* boxR = new Dynamic(boxverts, 4, vec2(5,  0), 0,0, vec2(-3, 0));
-    Rigidbody* wallL = new Rigidbody(floorverts, 4, vec2(-10.5, 0), 1.57);
-    Rigidbody* wallR = new Rigidbody(floorverts, 4, vec2(10.5, 0), 1.57);
-    Rigidbody* wallB = new Rigidbody(floorverts, 4, vec2(0, -10.5));
+    Static* wallL = new Static(floorverts, 4, vec2(-10.5, 0), 1.57);
+    Static* wallR = new Static(floorverts, 4, vec2(10.5, 0), 1.57);
+    Static* wallB = new Static(floorverts, 4, vec2(0, -10.5));
 
     nphys = 2; nstat = 3;
     physs[0] = boxL; physs[1] = boxR;
@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
   } else if (scene == 3) { // tower of boxes
     for (int i=0; i < 10; i++)
       physs[i] = new Dynamic(boxverts, 4, vec2(0, 1 + 2*i));
-    Rigidbody* floor = new Rigidbody(floorverts, 4, vec2(0, -0.5));
+    Static* floor = new Static(floorverts, 4, vec2(0, -0.5));
 
     nphys = 10; nstat = 1;
     stats[0] = floor;

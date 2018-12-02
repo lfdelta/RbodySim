@@ -14,7 +14,7 @@ class Simulator {
 public:
   Dynamic** physObjs;
   int nphys;
-  Rigidbody** staticObjs;
+  Static** staticObjs;
   int nstatics;
   double tstep; // seconds
   int nsteps;
@@ -22,7 +22,7 @@ public:
   float elasticity; // 0 perfectly inelastic, 1 perfectly elastic
   SimType mode;
 
-  Simulator(Dynamic** phys, const int nphysObjs, Rigidbody** statics, const int nstatObjs,
+  Simulator(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs,
             const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
   :tstep(t), nsteps(n), globalForce(g), mode(type) {
     loadObjects(phys, nphysObjs, statics, nstatObjs);
@@ -42,7 +42,7 @@ public:
   }
 
   // copy object arrays into the instance members
-  void loadObjects(Dynamic** phys, const int nphysObjs, Rigidbody** statics, const int nstatObjs) {
+  void loadObjects(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs) {
     if (physObjs) {
       for (int i=0; i < nphys; i++)
         free(physObjs[i]);
@@ -56,7 +56,7 @@ public:
     nphys = nphysObjs;
     nstatics = nstatObjs;
     physObjs = (Dynamic**)malloc(nphys * sizeof(Dynamic*));
-    staticObjs = (Rigidbody**)malloc(nstatics * sizeof(Rigidbody*));
+    staticObjs = (Static**)malloc(nstatics * sizeof(Static*));
 
     for (int i=0; i < nphys; i++)
       physObjs[i] = phys[i];
@@ -123,7 +123,7 @@ public:
 
     // print world-space vertex xs, then ys
     for (int i=0; i < nstatics; i++) {
-      Rigidbody* rbody = staticObjs[i];
+      Static* rbody = staticObjs[i];
 
       vec2 rVerts[rbody->nverts], rNorms[rbody->nverts];
       rbody->worldCoords(rVerts, rNorms);
@@ -156,7 +156,7 @@ public:
 
 
 
-bool AABBoverlap(const Rigidbody* a, const Rigidbody* b) {
+bool AABBoverlap(const Dynamic* a, const Dynamic* b) {
   vec2 apos = a->position, bpos = b->position;
 
   float aL = apos[0]+a->AABB[0][0], aR = apos[0]+a->AABB[1][0], bL = bpos[0]+b->AABB[0][0], bR = bpos[0]+b->AABB[1][0];
@@ -164,6 +164,20 @@ bool AABBoverlap(const Rigidbody* a, const Rigidbody* b) {
     return false;
 
   float aT = apos[1]+a->AABB[1][1], aB = apos[1]+a->AABB[0][1], bT = bpos[1]+b->AABB[1][1], bB = bpos[1]+b->AABB[0][1];
+  if (aB > bT || bB > aT) // if y doesn't overlap
+    return false;
+
+  return true; // x and y both overlap
+}
+
+bool AABBoverlap(const Dynamic* a, const Static* b) {
+  vec2 apos = a->position;
+
+  float aL = apos[0]+a->AABB[0][0], aR = apos[0]+a->AABB[1][0], bL = b->AABB[0][0], bR = b->AABB[1][0];
+  if (aL > bR || bL > aR) // if x doesn't overlap
+    return false;
+
+  float aT = apos[1]+a->AABB[1][1], aB = apos[1]+a->AABB[0][1], bT = b->AABB[1][1], bB = b->AABB[0][1];
   if (aB > bT || bB > aT) // if y doesn't overlap
     return false;
 
@@ -250,12 +264,12 @@ class EulerPairwise : public Simulator {
   public:
   int physLoops; // number of physics loops per timestep
 
-  EulerPairwise(Dynamic** phys, const int nphysObjs, Rigidbody** statics, const int nstatObjs, const int loops=5,
+  EulerPairwise(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs, const int loops=5,
                 const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
   :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops) {}
 
   // if SAT collision, move d and apply forces
-  void staticCollision(Dynamic* d, Rigidbody* s) {
+  void staticCollision(Dynamic* d, Static* s) {
     vec2 MTVdir; // normal vector to the plane of impact
     float MTVdist = -1;
 
@@ -323,7 +337,7 @@ class EulerPairwise : public Simulator {
       if (nphys == 1) {
         Dynamic* thisphys = physObjs[0];
         for (int j=0; j < nstatics; j++) {
-          Rigidbody* other = staticObjs[j];
+          Static* other = staticObjs[j];
           if (AABBoverlap(thisphys, other))
             staticCollision(thisphys, other);
         }
@@ -337,7 +351,7 @@ class EulerPairwise : public Simulator {
           }
 
           for (int j=0; j < nstatics; j++) { // all but one dynamic-static
-            Rigidbody* other = staticObjs[j];
+            Static* other = staticObjs[j];
             if (AABBoverlap(thisphys, other))
               staticCollision(thisphys, other);
           }
@@ -345,9 +359,9 @@ class EulerPairwise : public Simulator {
 
         Dynamic* thisphys = physObjs[nphys-1];
         for (int j=0; j < nstatics; j++) { // final dynamic-static
-            Rigidbody* other = staticObjs[j];
-            if (AABBoverlap(thisphys, other))
-              staticCollision(thisphys, other);
+          Static* other = staticObjs[j];
+          if (AABBoverlap(thisphys, other))
+            staticCollision(thisphys, other);
         }
       }
     } // end physloop

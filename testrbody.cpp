@@ -55,11 +55,11 @@ int main(int argc, char* argv[]) {
     hexadecverts[i] = vec2(cos(theta), sin(theta));
   }
 
-  Rigidbody rtriangle(rtriverts, 3, x, t, m);
-  Rigidbody square(squareverts, 4, x, t, m);
-  Rigidbody diamond(diamondverts, 4, x, t, m);
-  Rigidbody itriangle(itriverts, 3, x, t, m);
-  Rigidbody hexadec(hexadecverts, 16, x, t, m);
+  Static rtriangle(rtriverts, 3, x, t, m);
+  Static square(squareverts, 4, x, t, m);
+  Static diamond(diamondverts, 4, x, t, m);
+  Static itriangle(itriverts, 3, x, t, m);
+  Static hexadec(hexadecverts, 16, x, t, m);
 
   printProperties(&rtriangle, "Right Tri");
   printProperties(&square, "Square");
