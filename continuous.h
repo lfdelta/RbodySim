@@ -140,17 +140,25 @@ int SupportPoints(vec2* verts, int nverts, vec2 proj, vec2* supports) {
 //   just-barely-overlapping meshes
 // assumes that this is NOT a vertex-vertex collision; those should be handled separately
 ContactMesh EdgeContactPoints(vec2* Averts, vec2* Anorms, int Asz, vec2* Bverts, vec2* Bnorms, int Bsz) {
-  vec2 MTVdir;
-  float MTVdist = -1;
+  vec2 MTVdirA, MTVdirB, MTVdir;
+  float MTVdistA = -1;
+  float MTVdistB = -1;
+  float MTVdist;
 
-  if (MinimumTranslationVector(Averts, Anorms, Asz, Bverts, Bsz, MTVdir, MTVdist)) {
-    if (MinimumTranslationVector(Bverts, Bnorms, Bsz, Averts, Asz, MTVdir, MTVdist)) {
-      MTVdir *= -1; // points from A to B
+  if (MinimumTranslationVector(Averts, Anorms, Asz, Bverts, Bsz, MTVdirA, MTVdistA)) {
+    if (MinimumTranslationVector(Bverts, Bnorms, Bsz, Averts, Asz, MTVdirB, MTVdistB)) {
+      if (MTVdistA < MTVdistB) {
+        MTVdist = MTVdistA;
+        MTVdir = -MTVdirA;
+      } else {
+        MTVdist = MTVdistB;
+        MTVdir = MTVdirB;
+      }
       vec2 Asupp[2], Bsupp[2];
       int Anum = SupportPoints(Averts, Asz, MTVdir, Asupp);
       int Bnum = SupportPoints(Bverts, Bsz, -MTVdir, Bsupp);
       if (Anum == 1) {
-        return ContactMesh(Asupp[0], -MTVdir); // B edge -> A vertex
+        return ContactMesh(Asupp[0], MTVdir); // B edge -> A vertex
       } else if (Bnum == 1) {
         return ContactMesh(Bsupp[0], MTVdir); // A edge -> B vertex
 
@@ -164,7 +172,7 @@ ContactMesh EdgeContactPoints(vec2* Averts, vec2* Anorms, int Asz, vec2* Bverts,
         for (int i=0; i < 2; i++) {
           if (i != leftmost && i != rightmost) { // find the two innermost (collinear) points
             innerpoints[j] = edgeverts[i];
-            normals[j++] = -MTVdir; // A vertex -> B edge
+            normals[j++] = MTVdir; // A vertex -> B edge
           }
         }
         for (int i=2; i < 4; i++) {
@@ -388,7 +396,6 @@ public:
       }
 
     } else { // overlapping -> no separating axis
-      fprintf(stderr, "ERROR: RootFinder given bad simplex size %d\n", S->nverts);
       Aind = Bind = nhat = -1;
     }
 
@@ -623,11 +630,8 @@ float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqto
     // return if the minkowski difference is within threshold of the origin
     nearest = S->pointNearestOrigin();
     float sqdist = nearest.dot(nearest);
-    if (sqdist < sqtolerance) {
-      //nearest = vec2(0,0);
-      //return 0;
+    if (sqdist < sqtolerance)
       return sqdist;
-    }
 
     // return if this iteration didn't bring us any closer to the origin
     MinkVert alt;
@@ -673,8 +677,10 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
         minkDiff[B->nverts*i + j] = MinkVert(A->worldVertLerp(i, t), i, B->worldVertLerp(j, t), j);
     }
 
-    MinkVert minkHull[nMVs];
-    int hullsz = ConvexHull(minkDiff, nMVs, minkHull);
+    // MinkVert minkHull[nMVs];
+    // int hullsz = ConvexHull(minkDiff, nMVs, minkHull);
+    MinkVert* minkHull = minkDiff;
+    int hullsz = nMVs;
 
     // initialize the simplex, and run GJK to compute nearest points
     S->initialize(minkHull[0]);
@@ -684,8 +690,19 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
 
     advancement = RootFinder(A, B, S, t, tstep, threshold);
 
-    if (sqdist < sqtolerance) {
-      cmesh = advancement.GetContacts(t); // current distance (and time) is sufficiently close
+    // if (sqdist < sqtolerance) {
+    //   cmesh = advancement.GetContacts(t); // current distance (and time) is sufficiently close
+    //   break;
+    // } else {
+    // // perform conservative advancement
+    // t = advancement.FindRoot();
+    // cmesh = advancement.GetContacts(t); // store the contact mesh
+    // fprintf(stderr, "root found at %f\n", t);
+    // }
+
+    // wait for them to just barely penetrate
+    if (sqdist == 0) {
+      cmesh = advancement.GetContacts(t);
       break;
     } else {
       // perform conservative advancement
@@ -705,6 +722,9 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
   return t;
 }
 
+float cross(const vec2 a, const vec2 b) {
+  return a[0]*b[1] - a[1]*b[0];
+}
 
 
 class ContinuousSim : public Simulator {
@@ -716,21 +736,77 @@ class ContinuousSim : public Simulator {
   :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops) {}
 
 
+  // reference: Realtime Physics (John Dingliana, presented by Michael Manzke)
+  // reference: Erin Catto, GDC 2014
   void staticCollision(Dynamic* d, Static* s, ContactMesh c) {
-    fprintf(stderr, "CMESH SIZE %d\n", c.sz);
+    // vec2 dp = vec2(0,0);
+    // float dw = 0;
+
+    // for (int i=0; i < c.sz; i++) {
+    //   //   fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
+    //   //   fprintf(stderr, "velocity: {%f, %f}\n", d->velocity[0], d->velocity[1]);
+    //   //   fprintf(stderr, "perpvel: %f\n", perpvel);
+    //   vec2 nhat = -c.nhat[i]; // points from static to dynamic
+    //   vec2 r = c.pos[i] - d->position;
+    //   vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
+    //   vec2 vrel = nhat * nhat.dot(d->velocity + wxr);
+    //   vec2 changeP = (1 + elasticity) * d->mass * vrel;
+    //   dp += changeP;
+    //   dw += cross(r, changeP) * d->invinertia;
+    // }
+
+    // if (c.sz == 2)
+    //   dp *= 0.5;
+
+    // d->velocity -= dp * d->invmass;
+    // d->rotspeed -= dw;
+
+    vec2 dp = vec2(0,0);
+    float dalpha = 0;
+
     for (int i=0; i < c.sz; i++) {
-      vec2 nhat = -c.nhat[i];
-      float perpvel = nhat.dot(d->velocity);
-      float dp = (1 + elasticity)*perpvel;
-      d->velocity -= nhat * dp;
+      vec2 nhat = -c.nhat[i]; // points from static to dynamic
       fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
-      fprintf(stderr, "velocity: {%f, %f}\n", d->velocity[0], d->velocity[1]);
-      fprintf(stderr, "perpvel: %f\n", perpvel);
+      vec2 r = c.pos[i] - d->position;
+      vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
+      float vrel = nhat.dot(d->velocity + wxr);
+      float rxn = cross(r, nhat);
+      float j = -(1 + elasticity) * vrel / (d->invmass + d->invinertia*rxn*rxn);
+
+      vec2 J = nhat * j;
+      dp += J;
+      dalpha += cross(r, J);
     }
+
+    // if (c.sz == 2)
+    //   dp *= 0.5;
+
+    d->velocity += dp * d->invmass;
+    d->rotspeed += dalpha * d->invinertia;
   }
 
-  void dynamicCollision(Dynamic* a, Dynamic* b, ContactMesh c) {
-    return;
+  void dynamicCollision(Dynamic* A, Dynamic* B, ContactMesh c) {
+    // vec2 dpA = vec2(0,0), dpB = vec2(0,0);
+    // float dwA = 0, dwB = 0;
+
+    // for (int i=0; i < c.sz; i++) {
+    //   vec2 nhat = c.nhat[i]; // points from A to B
+    //   vec2 Ar = c.pos[i] - A->position;
+    //   vec2 Awxr = A->rotspeed * vec2(-Ar[1], Ar[0]); // omega cross r
+    //   vec2 Br = c.pos[i] - B->position;
+    //   vec2 Bwxr = B->rotspeed * vec2(-Br[1], Br[0]);
+
+    //   vec2 vrel = nhat * nhat.dot(A->velocity + Awxr - B->velocity - Bwxr);
+    //   vec2 changePA = (1 + elasticity) * A->mass * vrel;
+    //   dpA += changePA;
+    //   dw += cross(r, changeP) * d->invinertia;
+    // }
+
+    // if (c.sz == 2)
+    //   dp *= 0.5;
+
+    // d->velocity -= dp * d->invmass;
+    // d->rotspeed -= dw;
   }
 
   // update the position of every dynamic object
@@ -792,7 +868,7 @@ class ContinuousSim : public Simulator {
           integratePositions(tcol);
           staticCollision(thisphys, B, cmesh);
           remaining -= tcol;
-          integratePositions(remaining);
+          integratePositions(remaining); // hopefully a temporary measure
           remaining = -1;
         } else {
           integratePositions(remaining);
