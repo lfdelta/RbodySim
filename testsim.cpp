@@ -5,11 +5,13 @@
 #include "simulate.h"
 #include "rigidbody.h"
 #include "simulators.h"
+#include "continuous.h"
 
 int main(int argc, char* argv[]) {
   int scene = 0;
   int nsteps = 100;
   int physloops = 5;
+  bool continuous = false;
   float dt = 0.1;
   float elasticity = 1.0;
   char* fname;
@@ -19,8 +21,11 @@ int main(int argc, char* argv[]) {
   extern char *optarg;
   extern int optind, opterr, optopt;
 
-  while ((c = getopt(argc, argv, "s:n:t:f:p:e:")) != -1) {
+  while ((c = getopt(argc, argv, "s:n:t:f:p:e:c")) != -1) {
     switch(c) {
+    case 'c':
+      continuous = true;
+      break;
     case 'n':
       nsteps = std::stoi(optarg);
       break;
@@ -116,7 +121,12 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  EulerPairwise* sim = new EulerPairwise(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_FullOutput);
+  Simulator* sim;
+  if (continuous)
+    sim = new ContinuousSim(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_FullOutput);
+  else
+    sim = new EulerPairwise(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_FullOutput);
+
   if (outSIM) {
     sim->runFullSimulation(outSIM, outSYS, outSTA, outDYN);
     fclose(outSIM);

@@ -1,17 +1,17 @@
 
 tests:
 	make rbody
-	make euler
+	make sim
 	make continuous
 
 rbody:
 	clang++ testrbody.cpp -o testrbody
 
-euler:
-	clang++ testeuler.cpp -o testeuler
+sim:
+	clang++ testsim.cpp -o testsim
 
 continuous:
 	clang++ testcontinuous.cpp -o testcont
 
 clean:
-	rm ./testeuler ; rm ./testrbody ; rm ./testcont ; rm *~ *.dyn *.sys *.sta *.sim
+	rm ./testsim ; rm ./testrbody ; rm ./testcont ; rm *~ *.dyn *.sys *.sta *.sim

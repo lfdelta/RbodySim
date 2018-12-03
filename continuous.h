@@ -26,6 +26,42 @@ struct MinkVert {
   }
 };
 
+struct ContactMesh {
+  vec2 pos[2];
+  vec2 nhat[2];
+  char sz;
+
+  ContactMesh() {
+    sz = 0;
+  }
+
+  ContactMesh(vec2 p, vec2 n) {
+    pos[0] = p;
+    nhat[0] = n;
+    sz = 1;
+  }
+
+  ContactMesh(vec2 p1, vec2 p2, vec2 n1, vec2 n2) {
+    pos[0] = p1;
+    pos[1] = p2;
+    nhat[0] = n1;
+    nhat[1] = n2;
+    sz = 2;
+  }
+
+  ContactMesh(vec2 p1, vec2 p2, vec2 n1, vec2 n2, char ct) {
+    pos[0] = p1;
+    pos[1] = p2;
+    nhat[0] = n1;
+    nhat[1] = n2;
+    sz = ct;
+  }
+
+  ContactMesh operator-() {
+    return ContactMesh(pos[0], pos[1], -nhat[0], -nhat[1], sz);
+  }
+};
+
 // outputs the lerped coordinates such that u*A + v*B is
 //   the point between A and B which is nearest the origin
 // if u or v is negative, the point is not "between" A and B
@@ -212,17 +248,21 @@ private:
   enum AxisType { // stores which features define the separating edge
     AxisA,
     AxisB,
-    AxisBoth
+    AxisVert,
+    AxisDouble
   };
 
 public:
   Rigidbody *A, *B;
   int Aind, Bind; // indices to the points on A and B which we are separating
+  int Aind2, Bind2; // used for edge-edge resolution
   int nhat; // used for edge-vertex resolution (refers to index of edge normal)
   vec2 axis; // used for vertex-vertex resolution (no edge normal to reference)
   AxisType type;
   float t1, t2, t;
   float tolerance;
+
+  RootFinder() {}
 
   // takes tstart in [0, 1) as the fraction of the timestep to begin searching from
   // returns the time, [tstart, tstep], at which the bodies cross the separating axis within distance tol
@@ -232,7 +272,7 @@ public:
 
     if (S->nverts == 1) {
       a = S->verts[0];
-      type = AxisBoth;
+      type = AxisVert;
 
       // Aind, Bind are support points (vertices with deepest penetration) at end time
       axis = B->worldVertLerp(a.Bind, t1) - A->worldVertLerp(a.Aind, t1);
@@ -251,10 +291,25 @@ public:
       // take the normal vector from the separating edge
       if (a.Aind == b.Aind) {
         type = AxisB;
-        nhat = min(a.Bind, b.Bind);
+        if ((a.Bind == 0 && b.Bind != 1) || (b.Bind == 0 && a.Bind != 1)) // handle wraparound
+          nhat = max(a.Bind, b.Bind);
+        else
+          nhat = min(a.Bind, b.Bind);
       } else if (a.Bind == b.Bind) {
         type = AxisA;
-        nhat = min(a.Aind, b.Aind);
+        if ((a.Aind == 0 && b.Aind != 1) || (b.Aind == 0 && a.Aind != 1)) // handle wraparound
+          nhat = max(a.Aind, b.Aind);
+        else
+          nhat = min(a.Aind, b.Aind);
+      } else {
+        type = AxisDouble;
+        // the two edges must be parallel, so we arbitrarily choose edge A normal
+        if ((a.Aind == 0 && b.Aind != 1) || (b.Aind == 0 && a.Aind != 1)) // handle wraparound
+          nhat = max(a.Aind, b.Aind);
+        else
+          nhat = min(a.Aind, b.Aind);
+        Aind2 = b.Aind; // track these to potentially use for contact generation
+        Bind2 = a.Bind;
       }
 
     } else { // overlapping -> no separating axis
@@ -274,6 +329,7 @@ public:
 
     switch(type) {
       case AxisA:
+      case AxisDouble:
         // if the root is not bracketed, exit
         n = A->worldNormLerp(nhat, t2);
         d = n.dot(B->worldVertLerp(Bind, t2)) - n.dot(A->worldVertLerp(Aind, t2));
@@ -326,7 +382,7 @@ public:
         }
         break;
 
-      case AxisBoth:
+      case AxisVert:
         // if the root is not bracketed, exit
         d = axis.dot(B->worldVertLerp(Bind, t2)) - axis.dot(A->worldVertLerp(Aind, t2));
         if (d > 0)
@@ -353,6 +409,23 @@ public:
       default:
         fprintf(stderr, "ERROR: FindRoot given bad type enum %d\n", type);
         return -1;
+    }
+  }
+
+  // returns a struct containing the world coordinates of the nearest features of the two rigidbodies
+  // nhat will always point from A to B
+  ContactMesh GetContacts(float dt) {
+    switch(type) {
+      case AxisA:
+      case AxisDouble:
+        return ContactMesh(B->worldVertLerp(Bind, dt), A->worldNormLerp(nhat, dt));
+      case AxisB:
+        return ContactMesh(A->worldVertLerp(Aind, dt), -B->worldNormLerp(nhat, dt));
+      case AxisVert: // we assume Aind position is approximately Bind position
+        return ContactMesh(A->worldVertLerp(Aind, dt), axis);
+
+      default:
+        return ContactMesh();
     }
   }
 };
@@ -430,7 +503,8 @@ float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqto
 // takes bracketing start and end times to search for collision, in the range of [0, tstep)
 // returns the time [0,tstep] at which collision first occurs
 // returns a negative value if the objects are not colliding at t=tstep
-float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, float threshold=0.00001) {
+// out-parameter cmesh is a list of world-space contact points between the two objects
+float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMesh& cmesh, float threshold=0.00001) {
   float sqtolerance = threshold*threshold;
   float t = t1;
 
@@ -438,6 +512,7 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, float thre
   Simplex* S = new Simplex();
   int nMVs = A->nverts * B->nverts;
   MinkVert* minkDiff = (MinkVert*)malloc(nMVs * sizeof(MinkVert*));
+  RootFinder advancement;
 
   // stop if we detect non-collision, or if we advance beyond the end of the current timestep
   while (t >= 0 && t < tstep) {
@@ -457,7 +532,7 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, float thre
       break; // current distance (and time) is sufficiently close
 
     // perform conservative advancement
-    RootFinder advancement(A, B, S, t, tstep, threshold);
+    advancement = RootFinder(A, B, S, t, tstep, threshold);
     t = advancement.FindRoot();
   }
 
@@ -465,7 +540,11 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, float thre
   free(minkDiff);
 
   // return -1 if we advanced beyond the end of the timestep
-  return (t > tstep) ? -1 : t;
+  if (t > tstep)
+    return -1;
+
+  cmesh = advancement.GetContacts(t); // store the contact mesh
+  return t;
 }
 
 
@@ -478,15 +557,31 @@ class ContinuousSim : public Simulator {
   :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops) {}
 
 
-  void staticCollision(Dynamic* d, Static* s) {
+  void staticCollision(Dynamic* d, Static* s, ContactMesh c) {
     return;
   }
 
-  void dynamicCollision(Dynamic* a, Dynamic* b) {
+  void dynamicCollision(Dynamic* a, Dynamic* b, ContactMesh c) {
     return;
+  }
+
+  // update the position of every dynamic object
+  void integratePositions(float dt) {
+    for (int i=0; i < nphys; i++) {
+      Dynamic* thisphys = physObjs[i];
+      thisphys->position += thisphys->velocity * dt;
+      if (thisphys->rotspeed != 0) {
+        thisphys->rotation += thisphys->rotspeed * dt;
+        thisphys->updateAABB();
+      }
+    }
   }
 
   void simulateTimestep() {
+    float remaining = tstep; // amount of time left to integrate in this timestep
+    bool collision = false; // was a collision detected?
+    float tcol; // time of earliest collision
+
     // apply forces to each object
     for (int i=0; i < nphys; i++) {
       Dynamic* thisphys = physObjs[i];
@@ -498,41 +593,83 @@ class ContinuousSim : public Simulator {
       thisphys->torque = 0;
     }
 
-    // iterate through objects to check collisions (pairwise)
-    for (int t=0; t < physLoops; t++) {
+    if (nphys == 1) {
+      Dynamic* thisphys = physObjs[0];
+      Static* B; // first object collided with
+      ContactMesh cmesh; // contact mesh for earliest collision
 
-      if (nphys == 1) {
-        Dynamic* thisphys = physObjs[0];
+      while (remaining > 0) {
+        collision = false;
+        tcol = remaining+1;
+
+        // accumulate earliest impact
         for (int j=0; j < nstatics; j++) {
           Static* other = staticObjs[j];
-          if (SphereOverlap(thisphys, other, tstep))
-            staticCollision(thisphys, other);
-        }
-      } else { // nphys > 1
-        for (int i=0; i < nphys-1; i++) {
-          Dynamic* thisphys = physObjs[i];
-          for (int j=i+1; j < nphys; j++) { // all dynamic-dynamic
-            Dynamic* other = physObjs[j];
-            if (SphereOverlap(thisphys, other, tstep))
-              dynamicCollision(thisphys, other);
-          }
-
-          for (int j=0; j < nstatics; j++) { // all but one dynamic-static
-            Static* other = staticObjs[j];
-            if (SphereOverlap(thisphys, other, tstep))
-              staticCollision(thisphys, other);
+          float t = SphereOverlap(thisphys, other, remaining); // test possible collision
+          if (t >= 0) {
+            ContactMesh tmpmesh;
+            t = TimeOfImpact(thisphys, other, t, remaining, tmpmesh); // test actual collision
+            if (t >= 0 && t < tcol) {
+              collision = true;
+              cmesh = tmpmesh;
+              tcol = t;
+              B = other;
+            }
           }
         }
 
-        Dynamic* thisphys = physObjs[nphys-1];
-        for (int j=0; j < nstatics; j++) { // final dynamic-static
-          Static* other = staticObjs[j];
-          if (SphereOverlap(thisphys, other, tstep))
-            staticCollision(thisphys, other);
+        if (collision) {
+          integratePositions(tcol);
+          staticCollision(thisphys, B, cmesh);
+          remaining -= tcol;
+        } else {
+          integratePositions(remaining);
+          remaining = -1;
         }
       }
-    } // end physloop
+    } else { // nphys > 1
+
+    }
+    //while (remaining > 0) {
+      // iterate through objects to detect the first collision (accumulate objects and time of impact)
+      // handle that collision
+      // integrate every object to that time tC
+      // remaining -= tC
+
+
+      // if (nphys == 1) {
+      //   Dynamic* thisphys = physObjs[0];
+      //   for (int j=0; j < nstatics; j++) {
+      //     Static* other = staticObjs[j];
+      //     if (SphereOverlap(thisphys, other, remaining))
+      //       staticCollision(thisphys, other);
+      //   }
+      // } else { // nphys > 1
+      //   for (int i=0; i < nphys-1; i++) {
+      //     Dynamic* thisphys = physObjs[i];
+      //     for (int j=i+1; j < nphys; j++) { // all dynamic-dynamic
+      //       Dynamic* other = physObjs[j];
+      //       if (SphereOverlap(thisphys, other, remaining))
+      //         dynamicCollision(thisphys, other);
+      //     }
+
+      //     for (int j=0; j < nstatics; j++) { // all but one dynamic-static
+      //       Static* other = staticObjs[j];
+      //       if (SphereOverlap(thisphys, other, remaining))
+      //         staticCollision(thisphys, other);
+      //     }
+      //   }
+
+      //   Dynamic* thisphys = physObjs[nphys-1];
+      //   for (int j=0; j < nstatics; j++) { // final dynamic-static
+      //     Static* other = staticObjs[j];
+      //     if (SphereOverlap(thisphys, other, remaining))
+      //       staticCollision(thisphys, other);
+      //   }
+      // }
+    //} // end physloop
   }
+
 };
 
 #endif //_CONTINUOUS_
