@@ -95,10 +95,15 @@ public:
   // returns the normal's world orientation, linearly interpolated
   virtual vec2 worldNormLerp(int ind, float dt) = 0;
 
-  // calculates all vertices' world positions, lerped by timestep t,
+  // calculates all vertices' world positions, lerped by timestep dt,
   //   and stores the values in the out-parameter,
   //   which must be of length nverts
   virtual void worldCoordsLerp(vec2* outVerts, float dt) = 0;
+
+  // calculates all normals' world orientations, lerped by timestep dt,
+  //   and stores the values in the out-parameter,
+  //   which must be of length nverts
+  virtual void worldNormalsLerp(vec2* outNorms, float dt) = 0;
 };
 
 
@@ -140,12 +145,21 @@ public:
     return rot * normals[ind];
   }
 
-  // calculates all vertices' world positions, lerped by timestep t,
+  // calculates all vertices' world positions, lerped by timestep st,
   //   and stores the values in the out-parameter,
   //   which must be of length nverts
   void worldCoordsLerp(vec2* outVerts, float dt) {
     for (int i=0; i < nverts; i++)
       outVerts[i] = worldVertLerp(i, dt);
+  }
+
+  // calculates all vertices' world positions, lerped by timestep st,
+  //   and stores the values in the out-parameter,
+  //   which must be of length nverts
+  void worldNormalsLerp(vec2* outNorms, float dt) {
+    mat2 rot = RotationMatrix(rotation + dt * rotspeed);
+    for (int i=0; i < nverts; i++)
+      outNorms[i] = rot * normals[i];
   }
 };
 
@@ -202,6 +216,11 @@ public:
   void worldCoordsLerp(vec2* outVerts, float dt) {
     for (int i=0; i < nverts; i++)
       outVerts[i] = bakedVerts[i];
+  }
+
+  void worldNormalsLerp(vec2* outNorms, float dt) {
+    for (int i=0; i < nverts; i++)
+      outNorms[i] = bakedNorms[i];
   }
 };
 

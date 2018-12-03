@@ -41,7 +41,7 @@ struct ContactMesh {
     sz = 1;
   }
 
-  ContactMesh(vec2 p1, vec2 p2, vec2 n1, vec2 n2) {
+  ContactMesh(vec2 p1, vec2 n1, vec2 p2, vec2 n2) {
     pos[0] = p1;
     pos[1] = p2;
     nhat[0] = n1;
@@ -49,7 +49,7 @@ struct ContactMesh {
     sz = 2;
   }
 
-  ContactMesh(vec2 p1, vec2 p2, vec2 n1, vec2 n2, char ct) {
+  ContactMesh(vec2 p1, vec2 n1, vec2 p2, vec2 n2, char ct) {
     pos[0] = p1;
     pos[1] = p2;
     nhat[0] = n1;
@@ -74,15 +74,21 @@ void edgeUV(const vec2 A, const vec2 B, float& u, float& v) {
 
 // returns the point which is farthest in the direction of proj
 //   (whose projection along the vector is greatest)
-MinkVert SupportPoint(MinkVert* verts, int nverts, vec2 proj) {
+// if dup is true, out-parameter duplicate stores a second vertex which is equally far
+MinkVert SupportPoint(MinkVert* verts, int nverts, vec2 proj, bool& dup, MinkVert* duplicate) {
   MinkVert maxvert = verts[0];
   float maxdist = proj.dot(maxvert.pos);
+  dup = false;
 
   for (int i=1; i < nverts; i++) {
     float d = proj.dot(verts[i].pos);
     if (d > maxdist) {
       maxdist = d;
       maxvert = verts[i];
+      dup = false;
+    } else if (d == maxdist) {
+      *duplicate = verts[i];
+      dup = true;
     }
   }
 
@@ -104,6 +110,75 @@ int SupportPoint(vec2* verts, int nverts, vec2 proj) {
   }
 
   return maxvert;
+}
+
+// calculates the vertices which are farthest in the direction of proj
+// returns the number of support points found (1 or 2)
+// out-parameter supports must be length 2, and stores the support vertices
+int SupportPoints(vec2* verts, int nverts, vec2 proj, vec2* supports) {
+  float maxdist = proj.dot(verts[0]);
+  supports[0] = verts[0];
+  int sz = 1;
+
+  for (int i=1; i < nverts; i++) {
+    float d = proj.dot(verts[i]);
+    if (d > maxdist) {
+      maxdist = d;
+      supports[0] = verts[i];
+      sz = 1;
+    } else if (d == maxdist) {
+      supports[1] = verts[i];
+      sz = 2;
+    }
+  }
+
+  return sz;
+}
+
+
+// uses separating axis theorem (SAT) to generate nearest points on two
+//   just-barely-overlapping meshes
+// assumes that this is NOT a vertex-vertex collision; those should be handled separately
+ContactMesh EdgeContactPoints(vec2* Averts, vec2* Anorms, int Asz, vec2* Bverts, vec2* Bnorms, int Bsz) {
+  vec2 MTVdir;
+  float MTVdist = -1;
+
+  if (MinimumTranslationVector(Averts, Anorms, Asz, Bverts, Bsz, MTVdir, MTVdist)) {
+    if (MinimumTranslationVector(Bverts, Bnorms, Bsz, Averts, Asz, MTVdir, MTVdist)) {
+      MTVdir *= -1; // points from A to B
+      vec2 Asupp[2], Bsupp[2];
+      int Anum = SupportPoints(Averts, Asz, MTVdir, Asupp);
+      int Bnum = SupportPoints(Bverts, Bsz, -MTVdir, Bsupp);
+      if (Anum == 1) {
+        return ContactMesh(Asupp[0], -MTVdir); // B edge -> A vertex
+      } else if (Bnum == 1) {
+        return ContactMesh(Bsupp[0], MTVdir); // A edge -> B vertex
+
+      } else {
+        vec2 edge = Asupp[1] - Asupp[0]; // A edge -> B edge (should be roughly collinear)
+        vec2 edgeverts[4] = {Asupp[0], Asupp[1], Bsupp[0], Bsupp[1]};
+        int rightmost = SupportPoint(edgeverts, 4, edge);
+        int leftmost = SupportPoint(edgeverts, 4, -edge);
+        vec2 innerpoints[2], normals[2];
+        int j = 0;
+        for (int i=0; i < 2; i++) {
+          if (i != leftmost && i != rightmost) { // find the two innermost (collinear) points
+            innerpoints[j] = edgeverts[i];
+            normals[j++] = -MTVdir; // A vertex -> B edge
+          }
+        }
+        for (int i=2; i < 4; i++) {
+          if (i != leftmost && i != rightmost) {
+            innerpoints[j] = edgeverts[i];
+            normals[j++] = MTVdir; // B vertex -> A edge
+          }
+        }
+        return ContactMesh(innerpoints[0], normals[0], innerpoints[1], normals[1]);
+      }
+    }
+  }
+
+  return ContactMesh(); // no collision
 }
 
 
@@ -246,10 +321,10 @@ public:
 class RootFinder {
 private:
   enum AxisType { // stores which features define the separating edge
-    AxisA,
-    AxisB,
-    AxisVert,
-    AxisDouble
+    AxisA = 0,
+    AxisB = 1,
+    AxisVert = 2,
+    AxisDouble = 3
   };
 
 public:
@@ -313,13 +388,14 @@ public:
       }
 
     } else { // overlapping -> no separating axis
-      fprintf(stderr, "ERROR: RootFinder give bad simplex size %d\n", S->nverts);
+      fprintf(stderr, "ERROR: RootFinder given bad simplex size %d\n", S->nverts);
       Aind = Bind = nhat = -1;
     }
 
     t = t1;
     t2 = tstep;
   }
+
 
   // returns the time, [t1, t2), where the reference features cross their separating axis
   // returns t < 0 if the objects are not penetrating at the end of the timestep
@@ -344,7 +420,7 @@ public:
           n = A->worldNormLerp(nhat, t);
           d = n.dot(B->worldVertLerp(Bind, t)) - n.dot(A->worldVertLerp(Aind, t));
 
-          if (abs(d) < tolerance)
+          if (d < 0 && abs(d) < tolerance)
             return t;
 
           // bisection root-finding
@@ -370,7 +446,7 @@ public:
           n = B->worldNormLerp(nhat, t);
           d = n.dot(A->worldVertLerp(Aind, t)) - n.dot(B->worldVertLerp(Bind, t));
 
-          if (abs(d) < tolerance)
+          if (d < 0 && abs(d) < tolerance)
             return t;
 
           // bisection root-finding
@@ -394,7 +470,7 @@ public:
         while (true) {
           d = axis.dot(B->worldVertLerp(Bind, t)) - axis.dot(A->worldVertLerp(Aind, t));
 
-          if (abs(d) < tolerance)
+          if (d < 0 && abs(d) < tolerance)
             return t;
 
           // bisection root-finding
@@ -415,16 +491,21 @@ public:
   // returns a struct containing the world coordinates of the nearest features of the two rigidbodies
   // nhat will always point from A to B
   ContactMesh GetContacts(float dt) {
+    vec2 Avs[A->nverts], Ans[A->nverts];
+    vec2 Bvs[B->nverts], Bns[B->nverts];
+
     switch(type) {
-      case AxisA:
-      case AxisDouble:
-        return ContactMesh(B->worldVertLerp(Bind, dt), A->worldNormLerp(nhat, dt));
-      case AxisB:
-        return ContactMesh(A->worldVertLerp(Aind, dt), -B->worldNormLerp(nhat, dt));
       case AxisVert: // we assume Aind position is approximately Bind position
-        return ContactMesh(A->worldVertLerp(Aind, dt), axis);
+        return ContactMesh(A->worldVertLerp(Aind, dt), axis.normalized());
+      case AxisA:
+      case AxisB:
+      case AxisDouble:
+        A->worldCoordsLerp(Avs, dt); A->worldNormalsLerp(Ans, dt);
+        B->worldCoordsLerp(Bvs, dt); B->worldNormalsLerp(Bns, dt);
+        return EdgeContactPoints(Avs, Ans, A->nverts, Bvs, Bns, B->nverts);
 
       default:
+        fprintf(stderr, "ERROR: GetContacts given invalid type %d\n", type);
         return ContactMesh();
     }
   }
@@ -454,7 +535,7 @@ float SphereCast(vec2 A1, vec2 A2, float Ra, vec2 B1, vec2 B2, float Rb) {
     t = b/(2*Dsq);
   else // take the first root (collision entry; second is collision exit)
     t = (b - sqrt(discr)) / (2*Dsq);
-  return (t <= 1) ? t : -1;
+  return (t <= 1) ? fmax(0, t) : -1;
 }
 
 // wrapper for SphereCast
@@ -463,14 +544,72 @@ float SphereOverlap(Dynamic* A, Dynamic* B, float tstep) {
   vec2 A2 = A1 + tstep * A->velocity;
   vec2 B1 = B->position;
   vec2 B2 = B1 + tstep * B->velocity;
-  return SphereCast(A1, A2, A->radius, B1, B2, B->radius);
+  return tstep * SphereCast(A1, A2, A->radius, B1, B2, B->radius);
 }
 
 float SphereOverlap(Dynamic* A, Static* B, float tstep) {
   vec2 A1 = A->position;
   vec2 A2 = A1 + tstep * A->velocity;
   vec2 B1 = B->position;
-  return SphereCast(A1, A2, A->radius, B1, B1, B->radius);
+  return tstep * SphereCast(A1, A2, A->radius, B1, B1, B->radius);
+}
+
+
+// uses cross product to determine if a->b->c is counterclockwise
+// returns positive if CCW, 0 if collinear, negative if CW
+float Handedness(vec2 a, vec2 b, vec2 c) {
+  return ((b[0]-a[0])*(c[1]-b[1]) - (b[1]-a[1])*(c[0]-b[0]));
+}
+
+// uses "gift wrapping" algorithm to compute the convex hull of a point cloud
+// out-parameter hull stores the culled vertices, in counterclockwise order
+// returns the number of vertices in the hull
+int ConvexHull(MinkVert* cloud, int nverts, MinkVert* hull) {
+  int startind = 0;
+  float startx = cloud[0].pos[0];
+  float starty = cloud[0].pos[1];
+
+  // look for the leftmost point; if multiple, take bottommost
+  for (int i=0; i < nverts; i++) {
+    vec2 pos = cloud[i].pos;
+    if (pos[0] < startx || (pos[0] == startx && pos[1] < starty)) {
+      startind = i;
+      startx = pos[0];
+      starty = pos[1];
+    }
+  }
+
+  int nextind = startind; // the one we're about to add
+  int lastind; // the one we just added
+
+  hull[0] = cloud[startind];
+  int sz = 1;
+
+  // keep adding hull points until we've wrapped back to the start
+  while (true) {
+    lastind = nextind;
+    nextind = 0; // start searching through the point cloud again
+
+    // find the next hull point, given the previous one
+    for (int i=1; i < nverts; i++) {
+      float h = Handedness(cloud[lastind].pos, cloud[i].pos, cloud[nextind].pos);
+      if (h > 0) {
+        nextind = i; // this point is "more clockwise" than the accumulator
+      } else if (h == 0) {
+        vec2 p1 = cloud[i].pos - cloud[lastind].pos;
+        vec2 p2 = cloud[nextind].pos - cloud[lastind].pos;
+        if (p1.dot(p1) > p2.dot(p2))
+          nextind = i; // collinear -> take the further one (outermost)
+      }
+    }
+
+    if (nextind == startind)
+      break;
+    else
+      hull[sz++] = cloud[nextind]; // add to hull
+  }
+
+  return sz;
 }
 
 
@@ -484,16 +623,24 @@ float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqto
     // return if the minkowski difference is within threshold of the origin
     nearest = S->pointNearestOrigin();
     float sqdist = nearest.dot(nearest);
-      if (sqdist < sqtolerance) {
-      nearest = vec2(0,0);
-      return 0;
+    if (sqdist < sqtolerance) {
+      //nearest = vec2(0,0);
+      //return 0;
+      return sqdist;
     }
 
     // return if this iteration didn't bring us any closer to the origin
-    MinkVert support = SupportPoint(minkverts, nverts, -nearest);
-    if (S->contains(support))
-      return sqdist;
-    S->insertPoint(support);
+    MinkVert alt;
+    bool dup;
+    MinkVert support = SupportPoint(minkverts, nverts, -nearest, dup, &alt);
+    if (S->contains(support)) {
+      if (!dup || S->contains(alt))
+        return sqdist;
+      else
+        S->insertPoint(alt);
+    } else {
+      S->insertPoint(support);
+    }
   }
 }
 
@@ -511,8 +658,10 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
   // set up helper objects
   Simplex* S = new Simplex();
   int nMVs = A->nverts * B->nverts;
-  MinkVert* minkDiff = (MinkVert*)malloc(nMVs * sizeof(MinkVert*));
+  MinkVert* minkDiff = (MinkVert*)malloc(nMVs * sizeof(MinkVert));
   RootFinder advancement;
+
+  //fprintf(stderr, "ToI called with t1=%f, tstep=%f\n", t, tstep);
 
   // stop if we detect non-collision, or if we advance beyond the end of the current timestep
   while (t >= 0 && t < tstep) {
@@ -524,16 +673,26 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
         minkDiff[B->nverts*i + j] = MinkVert(A->worldVertLerp(i, t), i, B->worldVertLerp(j, t), j);
     }
 
-    // initialize the simplex, and run GJK to compute nearest points
-    S->initialize(minkDiff[0]);
-    vec2 nearest;
-    float sqdist = GJK(minkDiff, nMVs, S, nearest, sqtolerance);
-    if (sqdist < sqtolerance)
-      break; // current distance (and time) is sufficiently close
+    MinkVert minkHull[nMVs];
+    int hullsz = ConvexHull(minkDiff, nMVs, minkHull);
 
-    // perform conservative advancement
+    // initialize the simplex, and run GJK to compute nearest points
+    S->initialize(minkHull[0]);
+    vec2 nearest;
+    float sqdist = GJK(minkHull, hullsz, S, nearest, sqtolerance);
+    fprintf(stderr, "sqdist: %f\n", sqdist);
+
     advancement = RootFinder(A, B, S, t, tstep, threshold);
-    t = advancement.FindRoot();
+
+    if (sqdist < sqtolerance) {
+      cmesh = advancement.GetContacts(t); // current distance (and time) is sufficiently close
+      break;
+    } else {
+      // perform conservative advancement
+      t = advancement.FindRoot();
+      cmesh = advancement.GetContacts(t); // store the contact mesh
+      fprintf(stderr, "root found at %f\n", t);
+    }
   }
 
   delete S;
@@ -543,9 +702,9 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
   if (t > tstep)
     return -1;
 
-  cmesh = advancement.GetContacts(t); // store the contact mesh
   return t;
 }
+
 
 
 class ContinuousSim : public Simulator {
@@ -558,7 +717,16 @@ class ContinuousSim : public Simulator {
 
 
   void staticCollision(Dynamic* d, Static* s, ContactMesh c) {
-    return;
+    fprintf(stderr, "CMESH SIZE %d\n", c.sz);
+    for (int i=0; i < c.sz; i++) {
+      vec2 nhat = -c.nhat[i];
+      float perpvel = nhat.dot(d->velocity);
+      float dp = (1 + elasticity)*perpvel;
+      d->velocity -= nhat * dp;
+      fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
+      fprintf(stderr, "velocity: {%f, %f}\n", d->velocity[0], d->velocity[1]);
+      fprintf(stderr, "perpvel: %f\n", perpvel);
+    }
   }
 
   void dynamicCollision(Dynamic* a, Dynamic* b, ContactMesh c) {
@@ -610,6 +778,7 @@ class ContinuousSim : public Simulator {
             ContactMesh tmpmesh;
             t = TimeOfImpact(thisphys, other, t, remaining, tmpmesh); // test actual collision
             if (t >= 0 && t < tcol) {
+              fprintf(stderr, "collision at time %f\n", t);
               collision = true;
               cmesh = tmpmesh;
               tcol = t;
@@ -619,9 +788,12 @@ class ContinuousSim : public Simulator {
         }
 
         if (collision) {
+          fprintf(stderr, "COLLISION!!!!!!\n");
           integratePositions(tcol);
           staticCollision(thisphys, B, cmesh);
           remaining -= tcol;
+          integratePositions(remaining);
+          remaining = -1;
         } else {
           integratePositions(remaining);
           remaining = -1;
@@ -630,44 +802,6 @@ class ContinuousSim : public Simulator {
     } else { // nphys > 1
 
     }
-    //while (remaining > 0) {
-      // iterate through objects to detect the first collision (accumulate objects and time of impact)
-      // handle that collision
-      // integrate every object to that time tC
-      // remaining -= tC
-
-
-      // if (nphys == 1) {
-      //   Dynamic* thisphys = physObjs[0];
-      //   for (int j=0; j < nstatics; j++) {
-      //     Static* other = staticObjs[j];
-      //     if (SphereOverlap(thisphys, other, remaining))
-      //       staticCollision(thisphys, other);
-      //   }
-      // } else { // nphys > 1
-      //   for (int i=0; i < nphys-1; i++) {
-      //     Dynamic* thisphys = physObjs[i];
-      //     for (int j=i+1; j < nphys; j++) { // all dynamic-dynamic
-      //       Dynamic* other = physObjs[j];
-      //       if (SphereOverlap(thisphys, other, remaining))
-      //         dynamicCollision(thisphys, other);
-      //     }
-
-      //     for (int j=0; j < nstatics; j++) { // all but one dynamic-static
-      //       Static* other = staticObjs[j];
-      //       if (SphereOverlap(thisphys, other, remaining))
-      //         staticCollision(thisphys, other);
-      //     }
-      //   }
-
-      //   Dynamic* thisphys = physObjs[nphys-1];
-      //   for (int j=0; j < nstatics; j++) { // final dynamic-static
-      //     Static* other = staticObjs[j];
-      //     if (SphereOverlap(thisphys, other, remaining))
-      //       staticCollision(thisphys, other);
-      //   }
-      // }
-    //} // end physloop
   }
 
 };
