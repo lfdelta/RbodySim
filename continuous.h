@@ -174,8 +174,9 @@ bool BarelySeparatingAxis(const vec2* aVerts, const vec2* aNorms, int aSize,
         bmax = d;
     }
 
-    // minimum overlap in the ranges defined by A and B's projections
-    float depth = fmin(bmax-amin, amax-bmin);
+    // overlap in the ranges defined by A and B's projections
+    // we're only interested in overlap defined by normals pointing from A to B
+    float depth = bmax-amin;//fmin(bmax-amin, amax-bmin);
 
     // A and B's projections are not within the threshold distance
     if (depth < 0 && -depth > threshold)
@@ -749,8 +750,14 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
   return t;
 }
 
+// returns a "vector" in the zhat direction
 float cross(const vec2 a, const vec2 b) {
   return a[0]*b[1] - a[1]*b[0];
+}
+
+// scalar argument is assumed to be a vector in the zhat direction
+vec2 cross(const float a, const vec2 b) {
+  return a * vec2(-b[1], b[0]);
 }
 
 
@@ -780,80 +787,98 @@ class ContinuousSim : public Simulator {
   :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops), step(0) {}
 
 
-  // reference: Realtime Physics (John Dingliana, presented by Michael Manzke)
-  // reference: Erin Catto, GDC 2014
+  // https://en.wikipedia.org/wiki/Collision_response#Impulse-based_reaction_model
   void staticCollision(Dynamic* d, Static* s, ContactMesh c) {
-    // vec2 dp = vec2(0,0);
-    // float dw = 0;
-
-    // for (int i=0; i < c.sz; i++) {
-      //   fprintf(stderr, "velocity: {%f, %f}\n", d->velocity[0], d->velocity[1]);
-      //   fprintf(stderr, "perpvel: %f\n", perpvel);
-    //   vec2 nhat = -c.nhat[i]; // points from static to dynamic
-    //   fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
-    //   vec2 r = c.pos[i] - d->position;
-    //   vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
-    //   vec2 vrel = nhat * nhat.dot(d->velocity + wxr);
-    //   vec2 changeP = (1 + elasticity) * d->mass * vrel;
-    //   dp += changeP;
-    //   dw += cross(r, changeP) * d->invinertia;
-    // }
-
-    // if (c.sz == 2)
-    //   dp *= 0.5;
-
-    // d->velocity -= dp * d->invmass;
-    // d->rotspeed -= dw;
-
-    vec2 dp = vec2(0,0);
-    float dalpha = 0;
+    float vrel = 0;
+    float rxn = 0;
+    vec2 navg = vec2(0,0);
+    vec2 ravg = vec2(0,0);
 
     for (int i=0; i < c.sz; i++) {
-      vec2 nhat = -c.nhat[i]; // points from static to dynamic
-      fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
-      vec2 r = c.pos[i] - d->position;
-      vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
-      float vrel = nhat.dot(d->velocity + wxr);
-      float rxn = cross(r, nhat);
-      float j = -(1 + elasticity) * vrel / (d->invmass + d->invinertia*rxn*rxn);
+      vec2 nhat = c.nhat[i]; // points from dynamic to static
 
-      vec2 J = nhat * j;
-      dp += J;
-      dalpha += cross(r, J);
+      vec2 r = c.pos[i] - d->position;
+      vec2 wxr = cross(d->rotspeed, r); // omega cross r
+
+      rxn += cross(r, nhat);
+      vrel += -(1+elasticity) * nhat.dot(-d->velocity - wxr);
+      navg += nhat;
+      ravg += r;
+
+      fprintf(stderr, "rxn:  %f\n", rxn);
+      fprintf(stderr, "vrel: %f\n", vrel);
+      fprintf(stderr, "nhat: {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
+      fprintf(stderr, "r:    {%0.1f, %0.1f}\n", r[0], r[1]);
     }
 
-    d->velocity += dp * d->invmass;
-    d->rotspeed += dalpha * d->invinertia;
+    if (c.sz == 2) {
+      vrel *= 0.5;
+      rxn *= 0.5;
+      navg *= 0.5;
+      ravg *= 0.5;
+    }
+
+    float invmeff = d->invmass + navg.dot(d->invinertia*cross(rxn, ravg));
+    float j = vrel / invmeff; // impulse magnitude
+
+    vec2 dp = j*navg;
+    float dL = j*rxn;
+
+    fprintf(stderr, "velocity before: {%0.1f, %0.1f}\n", d->velocity[0], d->velocity[1]);
+    d->velocity -= dp * d->invmass;
+    d->rotspeed -= dL * d->invinertia;
+    fprintf(stderr, "velocity after:  {%0.1f, %0.1f}\n", d->velocity[0], d->velocity[1]);
   }
 
 
-
+  // https://en.wikipedia.org/wiki/Collision_response#Impulse-based_reaction_model
   void dynamicCollision(Dynamic* A, Dynamic* B, ContactMesh c) {
-    vec2 dp = vec2(0,0);
-    float dAalpha = 0, dBalpha = 0;
+    float vrel = 0;
+    float Arxn = 0, Brxn = 0;
+    vec2 navg = vec2(0,0);
+    vec2 Aravg = vec2(0,0), Bravg = vec2(0,0);
 
     for (int i=0; i < c.sz; i++) {
-      vec2 nhat = -c.nhat[i]; // points from B to A
-      vec2 Ar = c.pos[i] - A->position;
-      vec2 Awxr = A->rotspeed * vec2(-Ar[1], Ar[0]); // omega cross r
-      vec2 Br = c.pos[i] - B->position;
-      vec2 Bwxr = B->rotspeed * vec2(-Br[1], Br[0]);
-      float vrel = nhat.dot(A->velocity + Awxr - B->velocity - Bwxr);
-      float Arxn = cross(Ar, nhat);
-      float Brxn = cross(Br, nhat);
-      float meff = (A->invmass + A->invinertia*Arxn*Arxn) + (B->invmass + B->invinertia*Brxn*Brxn);
-      float j = -(1 + elasticity) * vrel / meff;
+      vec2 nhat = c.nhat[i]; // points from dynamic to static
 
-      vec2 J = nhat * j;
-      dp += J;
-      dAalpha += cross(Ar, J);
-      dBalpha += cross(Br, J);
+      vec2 Ar = c.pos[i] - A->position;
+      vec2 Awxr = cross(A->rotspeed, Ar); // omega cross r
+      vec2 Br = c.pos[i] - B->position;
+      vec2 Bwxr = cross(B->rotspeed, Br); // omega cross r
+
+      Arxn += cross(Ar, nhat);
+      Brxn += cross(Br, nhat);
+      vrel += -(1+elasticity) * nhat.dot(B->velocity + Bwxr - A->velocity - Awxr);
+      navg += nhat;
+      Aravg += Ar;
+      Bravg += Br;
+
+      fprintf(stderr, "Arxn: %f\n", Arxn);
+      fprintf(stderr, "vrel: %f\n", vrel);
+      fprintf(stderr, "nhat: {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
+      fprintf(stderr, "Ar:   {%0.1f, %0.1f}\n", Ar[0], Ar[1]);
     }
 
-    A->velocity += dp * A->invmass;
-    A->rotspeed += dAalpha * A->invinertia;
-    B->velocity -= dp * B->invmass;
-    B->rotspeed += dBalpha * B->invinertia;
+    if (c.sz == 2) {
+      vrel *= 0.5;
+      Arxn *= 0.5; Brxn *= 0.5;
+      navg *= 0.5;
+      Aravg *= 0.5; Bravg *= 0.5;
+    }
+
+    float invmeff = A->invmass + B->invmass + navg.dot(A->invinertia*cross(Arxn, Aravg) + B->invinertia*cross(Brxn, Bravg));
+    float j = vrel / invmeff; // impulse magnitude
+
+    vec2 dp = j*navg;
+    float AdL = j*Arxn;
+    float BdL = j*Brxn;
+
+    fprintf(stderr, "Avel before: {%0.1f, %0.1f}\n", A->velocity[0], A->velocity[1]);
+    A->velocity -= dp * A->invmass;
+    B->velocity += dp * B->invmass;
+    A->rotspeed -= AdL * A->invinertia;
+    B->rotspeed -= BdL * B->invinertia;
+    fprintf(stderr, "Avel after:  {%0.1f, %0.1f}\n", A->velocity[0], A->velocity[1]);
   }
 
 
@@ -875,8 +900,8 @@ class ContinuousSim : public Simulator {
   void simulateTimestep() {
     fprintf(stderr, "loop %d\n", step++);
     float remaining = tstep; // amount of time left to integrate in this timestep
-    //bool collision = false; // was a collision detected?
     float tcol; // time of earliest collision
+    lastIterStack.clear();
 
     // apply forces to each object
     for (int i=0; i < nphys; i++) {
@@ -921,7 +946,7 @@ class ContinuousSim : public Simulator {
         }
 
         if (stack.size() > 0) {
-          fprintf(stderr, "collision at fraction %f\n", tcol/tstep);
+          fprintf(stderr, "collision at fraction %f, stack of size %lu\n", tcol/tstep, stack.size());
           integratePositions(tcol);
           for (CollisionEvent col : stack)
             staticCollision(thisphys, staticObjs[col.Bind], col.c);
@@ -998,9 +1023,7 @@ class ContinuousSim : public Simulator {
 
         if (stack.size() > 0) {
           integratePositions(tcol);
-
-          fprintf(stderr, "resolving stack of size %lu\n", stack.size());
-
+          fprintf(stderr, "collision at fraction %f, stack of size %lu\n", tcol/tstep, stack.size());
           for (CollisionEvent col : stack) {
             if (col.Bdynamic)
               dynamicCollision(physObjs[col.Aind], physObjs[col.Bind], col.c);
@@ -1008,7 +1031,6 @@ class ContinuousSim : public Simulator {
               staticCollision(physObjs[col.Aind], staticObjs[col.Bind], col.c);
           }
           lastIterStack = stack;
-          fprintf(stderr, "passing on stack of size %lu\n", lastIterStack.size());
           stack.clear();
           remaining -= tcol;
 

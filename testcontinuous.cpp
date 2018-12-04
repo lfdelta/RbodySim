@@ -44,10 +44,10 @@ int main(int argc, char* argv[]) {
   TestSphereCast(vec2(0, 0), vec2(0,1), 0, vec2(0, 1), vec2(0,2), 0.9, -1); // non-intersection
   TestSphereCast(vec2(-5, 7), vec2(15,7), 10, vec2(50,10), vec2(0,50), 10, -1); // non-intersection
 
-  vec2 box[] = {vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,1)};
+  vec2 floorbox[] = {vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,1)};
   vec2 floor[] = {vec2(-10,-1), vec2(10,-1), vec2(10,-0.001), vec2(-10,-0.001)};
   vec2 sqnorms[] = {vec2(0, -1), vec2(1, 0), vec2(0, 1), vec2(-1, 0)};
-  TestContacts(box, sqnorms, 4, floor, sqnorms, 4);
+  TestContacts(floorbox, sqnorms, 4, floor, sqnorms, 4);
 
   vec2 tri[] = {vec2(1,1), vec2(-1,1), vec2(0,0)};
   vec2 trinorms[] = {vec2(0,1), vec2(-1,-1)/sqrt(2), vec2(1,-1)/sqrt(2)};
@@ -57,6 +57,12 @@ int main(int argc, char* argv[]) {
   TestContacts(tri2, trinorms, 3, floor, sqnorms, 4);
 
   TestContacts(floor, sqnorms, 4, tri, trinorms, 3);
+
+  vec2 wall[] = {vec2(0,-10), vec2(1,-10), vec2(1,10), vec2(0,10)};
+  vec2 wallbox[] = {vec2(-1,-1), vec2(0,-1), vec2(0,0), vec2(-1,0)};
+  vec2 wallbox2[] = {vec2(-1+2,-1), vec2(0+2,-1), vec2(0+2,0), vec2(-1+2,0)};
+  TestContacts(wallbox, sqnorms, 4, wall, sqnorms, 4);
+  TestContacts(wallbox2, sqnorms, 4, wall, sqnorms, 4);
 
   return 0;
 }
