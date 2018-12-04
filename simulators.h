@@ -263,10 +263,11 @@ bool SeparatingAxisOverlap(const Rigidbody* a, const Rigidbody* b, vec2& outMTVd
 class EulerPairwise : public Simulator {
   public:
   int physLoops; // number of physics loops per timestep
+  int step;
 
   EulerPairwise(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs, const int loops=5,
                 const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
-  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops) {}
+  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops), step(0) {}
 
   // if SAT collision, move d and apply forces
   void staticCollision(Dynamic* d, Static* s) {
@@ -316,6 +317,9 @@ class EulerPairwise : public Simulator {
   }
 
   void simulateTimestep() {
+    if ((step++)%100 == 0)
+      fprintf(stderr, "loop %d\n", step);
+
     // speculatively apply physics to each dynamic object, ignoring potential collisions
     for (int i=0; i < nphys; i++) {
       Dynamic* thisphys = physObjs[i];

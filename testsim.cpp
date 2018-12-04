@@ -9,10 +9,10 @@
 
 int main(int argc, char* argv[]) {
   int scene = 0;
-  int nsteps = 100;
+  int nsteps = 1000;
   int physloops = 5;
   bool continuous = false;
-  float dt = 0.1;
+  float dt = 0.01;
   float elasticity = 1.0;
   char* fname;
   FILE *outSIM, *outSYS, *outSTA, *outDYN;
@@ -125,7 +125,7 @@ int main(int argc, char* argv[]) {
   // run with full output
   Simulator* sim;
   if (continuous)
-    sim = new ContinuousSim(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_FullOutput);
+    sim = new ContinuousSim(physs, nphys, stats, nstat, dt, nsteps, grav, elasticity, Sim_FullOutput);
   else
     sim = new EulerPairwise(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_FullOutput);
 

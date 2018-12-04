@@ -116,20 +116,21 @@ int SupportPoint(vec2* verts, int nverts, vec2 proj) {
 // calculates the vertices which are farthest in the direction of proj
 // returns the number of support points found (1 or 2)
 // out-parameter supports must be length 2, and stores the support vertices
-int SupportPoints(const vec2* verts, int nverts, vec2 proj, vec2* supports) {
+int SupportPoints(const vec2* verts, int nverts, vec2 proj, vec2* supports, float tolerance) {
   float maxdist = proj.dot(verts[0]);
   supports[0] = verts[0];
   int sz = 1;
 
   for (int i=1; i < nverts; i++) {
     float d = proj.dot(verts[i]);
-    if (d > maxdist) {
+
+    if (abs(d - maxdist) < tolerance) {
+      supports[1] = verts[i];
+      sz = 2;
+    } else if (d > maxdist) {
       maxdist = d;
       supports[0] = verts[i];
       sz = 1;
-    } else if (d == maxdist) {
-      supports[1] = verts[i];
-      sz = 2;
     }
   }
 
@@ -213,8 +214,8 @@ ContactMesh EdgeContactPoints(const vec2* Averts, const vec2* Anorms, int Asz,
         MTVdir = MTVdirB;
       }
       vec2 Asupp[2], Bsupp[2];
-      int Anum = SupportPoints(Averts, Asz, MTVdir, Asupp);
-      int Bnum = SupportPoints(Bverts, Bsz, -MTVdir, Bsupp);
+      int Anum = SupportPoints(Averts, Asz, MTVdir, Asupp, 0.001);
+      int Bnum = SupportPoints(Bverts, Bsz, -MTVdir, Bsupp, 0.001);
       if (Anum == 1) {
         return ContactMesh(Asupp[0], MTVdir); // B edge -> A vertex
       } else if (Bnum == 1) {
@@ -779,14 +780,13 @@ struct CollisionEvent {
 
 class ContinuousSim : public Simulator {
   public:
-  int physLoops;
   int step;
   std::vector<CollisionEvent> stack;
   std::vector<CollisionEvent> lastIterStack;
 
-  ContinuousSim(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs, const int loops=5,
+  ContinuousSim(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs,
                 const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
-  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops), step(0) {}
+  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), step(0) {}
 
 
   // https://en.wikipedia.org/wiki/Collision_response#Impulse-based_reaction_model
@@ -807,10 +807,10 @@ class ContinuousSim : public Simulator {
       navg += nhat;
       ravg += r;
 
-      fprintf(stderr, "rxn:  %f\n", rxn);
-      fprintf(stderr, "vrel: %f\n", vrel);
-      fprintf(stderr, "nhat: {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
-      fprintf(stderr, "r:    {%0.1f, %0.1f}\n", r[0], r[1]);
+      // fprintf(stderr, "rxn:  %f\n", rxn);
+      // fprintf(stderr, "vrel: %f\n", vrel);
+      // fprintf(stderr, "nhat: {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
+      // fprintf(stderr, "r:    {%0.1f, %0.1f}\n", r[0], r[1]);
     }
 
     if (c.sz == 2) {
@@ -826,10 +826,8 @@ class ContinuousSim : public Simulator {
     vec2 dp = j*navg;
     float dL = j*rxn;
 
-    fprintf(stderr, "velocity before: {%0.1f, %0.1f}\n", d->velocity[0], d->velocity[1]);
     d->velocity -= dp * d->invmass;
     d->rotspeed -= dL * d->invinertia;
-    fprintf(stderr, "velocity after:  {%0.1f, %0.1f}\n", d->velocity[0], d->velocity[1]);
   }
 
 
@@ -855,10 +853,10 @@ class ContinuousSim : public Simulator {
       Aravg += Ar;
       Bravg += Br;
 
-      fprintf(stderr, "Arxn: %f\n", Arxn);
-      fprintf(stderr, "vrel: %f\n", vrel);
-      fprintf(stderr, "nhat: {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
-      fprintf(stderr, "Ar:   {%0.1f, %0.1f}\n", Ar[0], Ar[1]);
+      //fprintf(stderr, "Arxn: %f\n", Arxn);
+      //fprintf(stderr, "vrel: %f\n", vrel);
+      //fprintf(stderr, "nhat: {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
+      //fprintf(stderr, "Ar:   {%0.1f, %0.1f}\n", Ar[0], Ar[1]);
     }
 
     if (c.sz == 2) {
@@ -875,12 +873,8 @@ class ContinuousSim : public Simulator {
     float AdL = j*Arxn;
     float BdL = j*Brxn;
 
-    fprintf(stderr, "Avel before: {%0.1f, %0.1f}\n", A->velocity[0], A->velocity[1]);
     A->velocity -= dp * A->invmass;
-    fprintf(stderr, "Avel after:  {%0.1f, %0.1f}\n", A->velocity[0], A->velocity[1]);
-    fprintf(stderr, "Bvel before: {%0.1f, %0.1f}\n", B->velocity[0], B->velocity[1]);
     B->velocity += dp * B->invmass;
-    fprintf(stderr, "Bvel after:  {%0.1f, %0.1f}\n", B->velocity[0], B->velocity[1]);
     A->rotspeed -= AdL * A->invinertia;
     B->rotspeed -= BdL * B->invinertia;
   }
@@ -902,7 +896,8 @@ class ContinuousSim : public Simulator {
 
 
   void simulateTimestep() {
-    fprintf(stderr, "loop %d\n", step++);
+    if ((step++)%100 == 0)
+      fprintf(stderr, "loop %d\n", step);
     float remaining = tstep; // amount of time left to integrate in this timestep
     float tcol; // time of earliest collision
     lastIterStack.clear();
@@ -950,7 +945,6 @@ class ContinuousSim : public Simulator {
         }
 
         if (stack.size() > 0) {
-          fprintf(stderr, "collision at fraction %f, stack of size %lu\n", tcol/tstep, stack.size());
           integratePositions(tcol);
           for (CollisionEvent col : stack)
             staticCollision(thisphys, staticObjs[col.Bind], col.c);
@@ -1027,7 +1021,6 @@ class ContinuousSim : public Simulator {
 
         if (stack.size() > 0) {
           integratePositions(tcol);
-          fprintf(stderr, "collision at fraction %f, stack of size %lu\n", tcol/tstep, stack.size());
           for (CollisionEvent col : stack) {
             if (col.Bdynamic)
               dynamicCollision(physObjs[col.Aind], physObjs[col.Bind], col.c);
