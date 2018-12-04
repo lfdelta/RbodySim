@@ -97,11 +97,12 @@ int main(int argc, char* argv[]) {
     stats[0] = wallL; stats[1] = wallR; stats[2] = wallB;
 
   } else if (scene == 3) { // tower of boxes
-    for (int i=0; i < 10; i++)
+    int nboxes = 3;
+    for (int i=0; i < nboxes; i++)
       physs[i] = new Dynamic(boxverts, 4, vec2(0, 1 + 2*i));
     Static* floor = new Static(floorverts, 4, vec2(0, -0.5));
 
-    nphys = 10; nstat = 1;
+    nphys = nboxes; nstat = 1;
     stats[0] = floor;
 
   } else if (scene == 4) { // billiard squares
@@ -121,6 +122,7 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
+  // run with full output
   Simulator* sim;
   if (continuous)
     sim = new ContinuousSim(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_FullOutput);
@@ -136,8 +138,14 @@ int main(int argc, char* argv[]) {
   } else {
     sim->runFullSimulation();
   }
-  sim->mode = Sim_Timer;
-  sim->runFullSimulation();
+
+  // // run with no output, and print the execution time
+  // if (continuous)
+  //   sim = new ContinuousSim(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_Timer);
+  // else
+  //   sim = new EulerPairwise(physs, nphys, stats, nstat, physloops, dt, nsteps, grav, elasticity, Sim_Timer);
+
+  // sim->runFullSimulation();
 
   return 0;
 }

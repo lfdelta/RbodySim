@@ -115,7 +115,7 @@ int SupportPoint(vec2* verts, int nverts, vec2 proj) {
 // calculates the vertices which are farthest in the direction of proj
 // returns the number of support points found (1 or 2)
 // out-parameter supports must be length 2, and stores the support vertices
-int SupportPoints(vec2* verts, int nverts, vec2 proj, vec2* supports) {
+int SupportPoints(const vec2* verts, int nverts, vec2 proj, vec2* supports) {
   float maxdist = proj.dot(verts[0]);
   supports[0] = verts[0];
   int sz = 1;
@@ -136,17 +136,73 @@ int SupportPoints(vec2* verts, int nverts, vec2 proj, vec2* supports) {
 }
 
 
+// modified separating axis theorem
+// returns true if the objects A and B are very nearly overlapping
+// out-parameters MTVdir and MTVdist store the corresponding translating vector
+bool BarelySeparatingAxis(const vec2* aVerts, const vec2* aNorms, int aSize,
+                          const vec2* bVerts, int bSize, float threshold, vec2& MTVdir, float& MTVdist) {
+  vec2 origin, axis, r; // origin vertex, associated normal, distance to current vertex of interest
+  float amin, amax, bmin, bmax; // signed distances from origin vertex, along the current axis
+
+  // for each normal axis of A
+  for (int i=0; i < aSize; i++) {
+    origin = aVerts[i];
+    axis = aNorms[i];
+
+    // project each of A's vertices onto the normal axis
+    amin = amax = 0;
+    for (int j=0; j < aSize; j++) {
+      r = aVerts[j] - origin;
+      float d = axis.dot(r);
+      if (d < amin)
+        amin = d;
+      if (d > amax)
+        amax = d;
+    }
+
+    // project each of B's vertices onto the normal axis
+    r = bVerts[0] - origin;
+    float d = axis.dot(r);
+    bmin = bmax = d;
+    for (int j=1; j < bSize; j++) {
+      r = bVerts[j] - origin;
+      d = axis.dot(r);
+      if (d < bmin)
+        bmin = d;
+      if (d > bmax)
+        bmax = d;
+    }
+
+    // minimum overlap in the ranges defined by A and B's projections
+    float depth = fmin(bmax-amin, amax-bmin);
+
+    // A and B's projections are not within the threshold distance
+    if (depth < 0 && -depth > threshold)
+      return false;
+
+    // accumulate translation vector
+    // we want the separating axis (depth < 0) which has the least non-penetration (depth -> 0)
+    if (depth < MTVdist || (MTVdist < 0 && abs(depth) < abs(MTVdist)) || MTVdist < -threshold) {
+      MTVdir = axis;
+      MTVdist = depth;
+    }
+  }
+  return true; // no sufficiently-separating axes were found
+}
+
+
 // uses separating axis theorem (SAT) to generate nearest points on two
-//   just-barely-overlapping meshes
+//   not-quite-overlapping (or just-barely-overlapping) meshes
 // assumes that this is NOT a vertex-vertex collision; those should be handled separately
-ContactMesh EdgeContactPoints(vec2* Averts, vec2* Anorms, int Asz, vec2* Bverts, vec2* Bnorms, int Bsz) {
+ContactMesh EdgeContactPoints(const vec2* Averts, const vec2* Anorms, int Asz,
+                              const vec2* Bverts, const vec2* Bnorms, int Bsz, float threshold) {
   vec2 MTVdirA, MTVdirB, MTVdir;
   float MTVdistA = -1;
   float MTVdistB = -1;
   float MTVdist;
 
-  if (MinimumTranslationVector(Averts, Anorms, Asz, Bverts, Bsz, MTVdirA, MTVdistA)) {
-    if (MinimumTranslationVector(Bverts, Bnorms, Bsz, Averts, Asz, MTVdirB, MTVdistB)) {
+  if (BarelySeparatingAxis(Averts, Anorms, Asz, Bverts, Bsz, threshold, MTVdirA, MTVdistA)) {
+    if (BarelySeparatingAxis(Bverts, Bnorms, Bsz, Averts, Asz, threshold, MTVdirB, MTVdistB)) {
       if (MTVdistA < MTVdistB) {
         MTVdist = MTVdistA;
         MTVdir = -MTVdirA;
@@ -410,10 +466,10 @@ public:
     float d;
     vec2 n;
 
+    // if the root is not bracketed, exit early
     switch(type) {
       case AxisA:
       case AxisDouble:
-        // if the root is not bracketed, exit
         n = A->worldNormLerp(nhat, t2);
         d = n.dot(B->worldVertLerp(Bind, t2)) - n.dot(A->worldVertLerp(Aind, t2));
         if (d > 0)
@@ -422,24 +478,9 @@ public:
         d = n.dot(B->worldVertLerp(Bind, t1)) - n.dot(A->worldVertLerp(Aind, t1));
         if (d < tolerance)
           return t1;
-
-        while (true) {
-          n = A->worldNormLerp(nhat, t);
-          d = n.dot(B->worldVertLerp(Bind, t)) - n.dot(A->worldVertLerp(Aind, t));
-
-          if (d < 0 && abs(d) < tolerance)
-            return t;
-
-          // bisection root-finding
-          if (d < 0)
-            t2 = t;
-          else
-            t1 = t;
-          t = 0.5 * (t1+t2);
-        }
+        break;
 
       case AxisB:
-        // if the root is not bracketed, exit
         n = B->worldNormLerp(nhat, t2);
         d = n.dot(A->worldVertLerp(Aind, t2)) - n.dot(B->worldVertLerp(Bind, t2));
         if (d > 0)
@@ -448,50 +489,48 @@ public:
         d = n.dot(A->worldVertLerp(Aind, t1)) - n.dot(B->worldVertLerp(Bind, t1));
         if (d < tolerance)
           return t1;
-
-        while (true) {
-          n = B->worldNormLerp(nhat, t);
-          d = n.dot(A->worldVertLerp(Aind, t)) - n.dot(B->worldVertLerp(Bind, t));
-
-          if (d < 0 && abs(d) < tolerance)
-            return t;
-
-          // bisection root-finding
-          if (d < 0)
-            t2 = t;
-          else
-            t1 = t;
-          t = 0.5 * (t1+t2);
-        }
         break;
 
       case AxisVert:
-        // if the root is not bracketed, exit
         d = axis.dot(B->worldVertLerp(Bind, t2)) - axis.dot(A->worldVertLerp(Aind, t2));
         if (d > 0)
           return -1;
         d = axis.dot(B->worldVertLerp(Bind, t1)) - axis.dot(A->worldVertLerp(Aind, t1));
         if (d < tolerance)
           return t1;
-
-        while (true) {
-          d = axis.dot(B->worldVertLerp(Bind, t)) - axis.dot(A->worldVertLerp(Aind, t));
-
-          if (d < 0 && abs(d) < tolerance)
-            return t;
-
-          // bisection root-finding
-          if (d < 0)
-            t2 = t;
-          else
-            t1 = t;
-          t = 0.5 * (t1+t2);
-        }
         break;
 
       default:
         fprintf(stderr, "ERROR: FindRoot given bad type enum %d\n", type);
         return -1;
+    }
+
+    // the main root-finding loop
+    while (true) {
+      switch(type) {
+        case AxisA:
+        case AxisDouble:
+          n = A->worldNormLerp(nhat, t);
+          d = n.dot(B->worldVertLerp(Bind, t)) - n.dot(A->worldVertLerp(Aind, t));
+          break;
+        case AxisB:
+          n = B->worldNormLerp(nhat, t);
+          d = n.dot(A->worldVertLerp(Aind, t)) - n.dot(B->worldVertLerp(Bind, t));
+          break;
+        case AxisVert:
+          d = axis.dot(B->worldVertLerp(Bind, t)) - axis.dot(A->worldVertLerp(Aind, t));
+          break;
+      }
+
+      if (abs(d) < tolerance)
+        return t;
+
+      // bisection root-finding
+      if (d < 0)
+        t2 = t;
+      else
+        t1 = t;
+      t = 0.5 * (t1+t2);
     }
   }
 
@@ -509,7 +548,7 @@ public:
       case AxisDouble:
         A->worldCoordsLerp(Avs, dt); A->worldNormalsLerp(Ans, dt);
         B->worldCoordsLerp(Bvs, dt); B->worldNormalsLerp(Bns, dt);
-        return EdgeContactPoints(Avs, Ans, A->nverts, Bvs, Bns, B->nverts);
+        return EdgeContactPoints(Avs, Ans, A->nverts, Bvs, Bns, B->nverts, tolerance);
 
       default:
         fprintf(stderr, "ERROR: GetContacts given invalid type %d\n", type);
@@ -677,38 +716,25 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
         minkDiff[B->nverts*i + j] = MinkVert(A->worldVertLerp(i, t), i, B->worldVertLerp(j, t), j);
     }
 
-    // MinkVert minkHull[nMVs];
-    // int hullsz = ConvexHull(minkDiff, nMVs, minkHull);
-    MinkVert* minkHull = minkDiff;
-    int hullsz = nMVs;
+    MinkVert minkHull[nMVs];
+    int hullsz = ConvexHull(minkDiff, nMVs, minkHull);
+    // MinkVert* minkHull = minkDiff;
+    // int hullsz = nMVs;
 
     // initialize the simplex, and run GJK to compute nearest points
     S->initialize(minkHull[0]);
     vec2 nearest;
     float sqdist = GJK(minkHull, hullsz, S, nearest, sqtolerance);
-    fprintf(stderr, "sqdist: %f\n", sqdist);
 
     advancement = RootFinder(A, B, S, t, tstep, threshold);
 
-    // if (sqdist < sqtolerance) {
-    //   cmesh = advancement.GetContacts(t); // current distance (and time) is sufficiently close
-    //   break;
-    // } else {
-    // // perform conservative advancement
-    // t = advancement.FindRoot();
-    // cmesh = advancement.GetContacts(t); // store the contact mesh
-    // fprintf(stderr, "root found at %f\n", t);
-    // }
-
-    // wait for them to just barely penetrate
-    if (sqdist == 0) {
-      cmesh = advancement.GetContacts(t);
+    if (sqdist < sqtolerance) {
+      cmesh = advancement.GetContacts(t); // current distance (and time) is sufficiently close
       break;
     } else {
       // perform conservative advancement
       t = advancement.FindRoot();
       cmesh = advancement.GetContacts(t); // store the contact mesh
-      fprintf(stderr, "root found at %f\n", t);
     }
   }
 
@@ -730,84 +756,90 @@ float cross(const vec2 a, const vec2 b) {
 class ContinuousSim : public Simulator {
   public:
   int physLoops;
+  int step;
 
   ContinuousSim(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs, const int loops=5,
                 const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
-  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops) {}
+  :Simulator(phys, nphysObjs, statics, nstatObjs, t, n, g, e, type), physLoops(loops), step(0) {}
 
 
   // reference: Realtime Physics (John Dingliana, presented by Michael Manzke)
   // reference: Erin Catto, GDC 2014
   void staticCollision(Dynamic* d, Static* s, ContactMesh c) {
-    // vec2 dp = vec2(0,0);
-    // float dw = 0;
-
-    // for (int i=0; i < c.sz; i++) {
-    //   //   fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
-    //   //   fprintf(stderr, "velocity: {%f, %f}\n", d->velocity[0], d->velocity[1]);
-    //   //   fprintf(stderr, "perpvel: %f\n", perpvel);
-    //   vec2 nhat = -c.nhat[i]; // points from static to dynamic
-    //   vec2 r = c.pos[i] - d->position;
-    //   vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
-    //   vec2 vrel = nhat * nhat.dot(d->velocity + wxr);
-    //   vec2 changeP = (1 + elasticity) * d->mass * vrel;
-    //   dp += changeP;
-    //   dw += cross(r, changeP) * d->invinertia;
-    // }
-
-    // if (c.sz == 2)
-    //   dp *= 0.5;
-
-    // d->velocity -= dp * d->invmass;
-    // d->rotspeed -= dw;
-
     vec2 dp = vec2(0,0);
-    float dalpha = 0;
+    float dw = 0;
 
     for (int i=0; i < c.sz; i++) {
+      //   fprintf(stderr, "velocity: {%f, %f}\n", d->velocity[0], d->velocity[1]);
+      //   fprintf(stderr, "perpvel: %f\n", perpvel);
       vec2 nhat = -c.nhat[i]; // points from static to dynamic
       fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
       vec2 r = c.pos[i] - d->position;
       vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
-      float vrel = nhat.dot(d->velocity + wxr);
-      float rxn = cross(r, nhat);
-      float j = -(1 + elasticity) * vrel / (d->invmass + d->invinertia*rxn*rxn);
+      vec2 vrel = nhat * nhat.dot(d->velocity + wxr);
+      vec2 changeP = (1 + elasticity) * d->mass * vrel;
+      dp += changeP;
+      dw += cross(r, changeP) * d->invinertia;
+    }
+
+    if (c.sz == 2)
+      dp *= 0.5;
+
+    d->velocity -= dp * d->invmass;
+    d->rotspeed -= dw;
+
+    // vec2 dp = vec2(0,0);
+    // float dalpha = 0;
+
+    // for (int i=0; i < c.sz; i++) {
+    //   vec2 nhat = -c.nhat[i]; // points from static to dynamic
+    //   fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
+    //   vec2 r = c.pos[i] - d->position;
+    //   vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
+    //   float vrel = nhat.dot(d->velocity + wxr);
+    //   float rxn = cross(r, nhat);
+    //   float j = -(1 + elasticity) * vrel / (d->invmass + d->invinertia*rxn*rxn);
+
+    //   vec2 J = nhat * j;
+    //   dp += J;
+    //   dalpha += cross(r, J);
+    // }
+
+    // d->velocity += dp * d->invmass;
+    // d->rotspeed += dalpha * d->invinertia;
+  }
+
+
+
+  void dynamicCollision(Dynamic* A, Dynamic* B, ContactMesh c) {
+    vec2 dp = vec2(0,0);
+    float dAalpha = 0, dBalpha = 0;
+
+    for (int i=0; i < c.sz; i++) {
+      vec2 nhat = -c.nhat[i]; // points from B to A
+      vec2 Ar = c.pos[i] - A->position;
+      vec2 Awxr = A->rotspeed * vec2(-Ar[1], Ar[0]); // omega cross r
+      vec2 Br = c.pos[i] - B->position;
+      vec2 Bwxr = B->rotspeed * vec2(-Br[1], Br[0]);
+      float vrel = nhat.dot(A->velocity + Awxr - B->velocity - Bwxr);
+      float Arxn = cross(Ar, nhat);
+      float Brxn = cross(Br, nhat);
+      float meff = (A->invmass + A->invinertia*Arxn*Arxn) + (B->invmass + B->invinertia*Brxn*Brxn);
+      float j = -(1 + elasticity) * vrel / meff;
 
       vec2 J = nhat * j;
       dp += J;
-      dalpha += cross(r, J);
+      dAalpha += cross(Ar, J);
+      dBalpha += cross(Br, J);
     }
 
-    // if (c.sz == 2)
-    //   dp *= 0.5;
-
-    d->velocity += dp * d->invmass;
-    d->rotspeed += dalpha * d->invinertia;
+    A->velocity += dp * A->invmass;
+    A->rotspeed += dAalpha * A->invinertia;
+    B->velocity -= dp * B->invmass;
+    B->rotspeed += dBalpha * B->invinertia;
   }
 
-  void dynamicCollision(Dynamic* A, Dynamic* B, ContactMesh c) {
-    // vec2 dpA = vec2(0,0), dpB = vec2(0,0);
-    // float dwA = 0, dwB = 0;
 
-    // for (int i=0; i < c.sz; i++) {
-    //   vec2 nhat = c.nhat[i]; // points from A to B
-    //   vec2 Ar = c.pos[i] - A->position;
-    //   vec2 Awxr = A->rotspeed * vec2(-Ar[1], Ar[0]); // omega cross r
-    //   vec2 Br = c.pos[i] - B->position;
-    //   vec2 Bwxr = B->rotspeed * vec2(-Br[1], Br[0]);
-
-    //   vec2 vrel = nhat * nhat.dot(A->velocity + Awxr - B->velocity - Bwxr);
-    //   vec2 changePA = (1 + elasticity) * A->mass * vrel;
-    //   dpA += changePA;
-    //   dw += cross(r, changeP) * d->invinertia;
-    // }
-
-    // if (c.sz == 2)
-    //   dp *= 0.5;
-
-    // d->velocity -= dp * d->invmass;
-    // d->rotspeed -= dw;
-  }
 
   // update the position of every dynamic object
   void integratePositions(float dt) {
@@ -821,7 +853,10 @@ class ContinuousSim : public Simulator {
     }
   }
 
+
+
   void simulateTimestep() {
+    fprintf(stderr, "loop %d\n", step++);
     float remaining = tstep; // amount of time left to integrate in this timestep
     bool collision = false; // was a collision detected?
     float tcol; // time of earliest collision
@@ -840,6 +875,7 @@ class ContinuousSim : public Simulator {
     if (nphys == 1) {
       Dynamic* thisphys = physObjs[0];
       Static* B; // first object collided with
+      int Bind = -1, ignore = -1;
       ContactMesh cmesh; // contact mesh for earliest collision
 
       while (remaining > 0) {
@@ -848,35 +884,120 @@ class ContinuousSim : public Simulator {
 
         // accumulate earliest impact
         for (int j=0; j < nstatics; j++) {
+          if (j == ignore)
+            continue; // don't collide the same object between applying physics and integrating
+
           Static* other = staticObjs[j];
           float t = SphereOverlap(thisphys, other, remaining); // test possible collision
           if (t >= 0) {
             ContactMesh tmpmesh;
             t = TimeOfImpact(thisphys, other, t, remaining, tmpmesh); // test actual collision
             if (t >= 0 && t < tcol) {
-              fprintf(stderr, "collision at time %f\n", t);
+              fprintf(stderr, "collision at fraction %f\n", t/tstep);
               collision = true;
               cmesh = tmpmesh;
               tcol = t;
               B = other;
+              Bind = j;
             }
           }
         }
 
         if (collision) {
-          fprintf(stderr, "COLLISION!!!!!!\n");
           integratePositions(tcol);
           staticCollision(thisphys, B, cmesh);
+          ignore = Bind;
           remaining -= tcol;
-          integratePositions(remaining); // hopefully a temporary measure
-          remaining = -1;
         } else {
           integratePositions(remaining);
+          ignore = -1;
           remaining = -1;
         }
       }
-    } else { // nphys > 1
 
+    } else { // nphys > 1
+      Dynamic *A, *Bdyn; // first objects to collide
+      Static* Bstat;
+      int Aind = -1, Bind = -1, ignore1 = -1, ignoreD = -1, ignoreS = -1;
+      ContactMesh cmesh; // contact mesh for earliest collision
+
+      while (remaining > 0) {
+        collision = false;
+        bool dyncoll = false; // was the collision between two dynamic objects
+        tcol = remaining+1;
+
+        // accumulate earliest impact, starting with each dynamic object pair
+        for (int i=0; i < nphys-1; i++) {
+          Dynamic* thisphys = physObjs[i];
+          for (int j=i+1; j < nphys; j++) {
+            if (i == ignore1 && j == ignoreD)
+              continue; // don't collide the same object pair between applying physics and integrating
+
+            Dynamic* other = physObjs[j];
+            float t = SphereOverlap(thisphys, other, remaining); // test possible collision
+            if (t >= 0) {
+              ContactMesh tmpmesh;
+              t = TimeOfImpact(thisphys, other, t, remaining, tmpmesh); // test actual collision
+              if (t >= 0 && t < tcol) {
+                collision = true;
+                dyncoll = true;
+                cmesh = tmpmesh;
+                tcol = t;
+                A = thisphys;
+                Bdyn = other;
+                Aind = i;
+                Bind = j;
+              }
+            }
+          }
+        } // end dynamic-dynamic loop
+
+        for (int i=0; i < nphys; i++) {
+          Dynamic* thisphys = physObjs[i];
+          for (int j=0; j < nstatics; j++) {
+            if (i == ignore1 && j == ignoreS)
+              continue;
+
+            Static* other = staticObjs[j];
+            float t = SphereOverlap(thisphys, other, remaining); // test possible collision
+            if (t >= 0) {
+              ContactMesh tmpmesh;
+              t = TimeOfImpact(thisphys, other, t, remaining, tmpmesh); // test actual collision
+              if (t >= 0 && t < tcol) {
+                collision = true;
+                dyncoll = false;
+                cmesh = tmpmesh;
+                tcol = t;
+                A = thisphys;
+                Bstat = other;
+                Aind = i;
+                Bind = j;
+              }
+            }
+          }
+        } // end dynamic-static loop
+
+        if (collision) {
+          integratePositions(tcol);
+          ignore1 = Aind;
+
+          if (dyncoll) {
+            dynamicCollision(A, Bdyn, cmesh);
+            ignoreD = Bind;
+            ignoreS = -1;
+          } else {
+            staticCollision(A, Bstat, cmesh);
+            ignoreD = -1;
+            ignoreS = Bind;
+          }
+          remaining -= tcol;
+
+        } else { // no collision
+          integratePositions(remaining);
+          ignore1 = ignoreD = ignoreS = -1;
+          remaining = -1;
+        }
+      }
     }
   }
 

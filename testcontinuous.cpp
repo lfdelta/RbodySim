@@ -11,7 +11,7 @@ void TestSphereCast(vec2 A1, vec2 A2, float Ra, vec2 B1, vec2 B2, float Rb, floa
 
 
 void TestContacts(vec2* v1, vec2* n1, int s1, vec2* v2, vec2* n2, int s2) {
-  ContactMesh cmesh = EdgeContactPoints(v1, n1, s1, v2, n2, s2);
+  ContactMesh cmesh = EdgeContactPoints(v1, n1, s1, v2, n2, s2, 0.01);
 
   printf("verts1:");
   for (int i=0; i < s1; i++)
@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
   TestSphereCast(vec2(-5, 7), vec2(15,7), 10, vec2(50,10), vec2(0,50), 10, -1); // non-intersection
 
   vec2 box[] = {vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,1)};
-  vec2 floor[] = {vec2(-10,-1), vec2(10,-1), vec2(10,0.001), vec2(-10,0.001)};
+  vec2 floor[] = {vec2(-10,-1), vec2(10,-1), vec2(10,-0.001), vec2(-10,-0.001)};
   vec2 sqnorms[] = {vec2(0, -1), vec2(1, 0), vec2(0, 1), vec2(-1, 0)};
   TestContacts(box, sqnorms, 4, floor, sqnorms, 4);
 
