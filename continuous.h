@@ -667,10 +667,13 @@ int ConvexHull(MinkVert* cloud, int nverts, MinkVert* hull) {
 // in/out-parameter simplex gets updated; stores points contributing to nearest
 // reference: so many, but mostly Erin Catto GDC 2013
 float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqtolerance) {
-  while (true) {
+  float sqdist = -1;
+  int iter = 0;
+
+  while ((iter++) <= nverts) {
     // return if the minkowski difference is within threshold of the origin
     nearest = S->pointNearestOrigin();
-    float sqdist = nearest.dot(nearest);
+    sqdist = nearest.dot(nearest);
     if (sqdist < sqtolerance)
       return sqdist;
 
@@ -687,6 +690,9 @@ float GJK(MinkVert* minkverts, int nverts, Simplex* S, vec2& nearest, float sqto
       S->insertPoint(support);
     }
   }
+
+  // exit after too many iterations ("thrashing" between simplex configurations)
+  return sqdist;
 }
 
 
@@ -706,8 +712,6 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
   MinkVert* minkDiff = (MinkVert*)malloc(nMVs * sizeof(MinkVert));
   RootFinder advancement;
 
-  //fprintf(stderr, "ToI called with t1=%f, tstep=%f\n", t, tstep);
-
   // stop if we detect non-collision, or if we advance beyond the end of the current timestep
   while (t >= 0 && t < tstep) {
     // compute the minkowski difference at the current time
@@ -720,8 +724,6 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
 
     MinkVert minkHull[nMVs];
     int hullsz = ConvexHull(minkDiff, nMVs, minkHull);
-    // MinkVert* minkHull = minkDiff;
-    // int hullsz = nMVs;
 
     // initialize the simplex, and run GJK to compute nearest points
     S->initialize(minkHull[0]);
@@ -875,10 +877,12 @@ class ContinuousSim : public Simulator {
 
     fprintf(stderr, "Avel before: {%0.1f, %0.1f}\n", A->velocity[0], A->velocity[1]);
     A->velocity -= dp * A->invmass;
+    fprintf(stderr, "Avel after:  {%0.1f, %0.1f}\n", A->velocity[0], A->velocity[1]);
+    fprintf(stderr, "Bvel before: {%0.1f, %0.1f}\n", B->velocity[0], B->velocity[1]);
     B->velocity += dp * B->invmass;
+    fprintf(stderr, "Bvel after:  {%0.1f, %0.1f}\n", B->velocity[0], B->velocity[1]);
     A->rotspeed -= AdL * A->invinertia;
     B->rotspeed -= BdL * B->invinertia;
-    fprintf(stderr, "Avel after:  {%0.1f, %0.1f}\n", A->velocity[0], A->velocity[1]);
   }
 
 
