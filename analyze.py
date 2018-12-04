@@ -9,6 +9,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('file', metavar='f', type=str, help="File prefix to analyze (.csv and .sys)")
 parser.add_argument('-d', metavar='displaymode', type=int, nargs=1, default=[0])
+parser.add_argument('-p', type=str, nargs=1, default="")
 arg = parser.parse_args()
 
 
@@ -19,6 +20,7 @@ for i in range(len(sysdata[0])):
   sys[sysdata[0][i]] = float(sysdata[1][i])
 nsteps = int(sys['nsteps'])
 tstep = sys['tstep']
+
 
 dyndata = np.loadtxt(arg.file+".dyn", dtype=str, delimiter="\n") # dynamic inertias and vertices
 colsPerDyn = 2
@@ -80,7 +82,12 @@ if (1 in arg.d): # plot x and y separately against t
   ax.set_xlabel("Timestep $t_i$")
   ax.set_ylabel("Position")
   ax.legend()
-  plt.show()
+
+  if (arg.p):
+    log = np.log10(tstep)
+    plt.savefig("{}-t{}-n{}-1.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-log)*tstep)), nsteps), frameon=True);
+  else:
+    plt.show()
 
 
 if (2 in arg.d): # 2D position plot
@@ -107,7 +114,7 @@ if (2 in arg.d): # 2D position plot
 
       rotmat = np.matrix(((c[t],-s[t]), (s[t], c[t])))
       rotverts = np.array(rotmat * np.matrix([dynXs[n], dynYs[n]]))
-      ax.plot(rotverts[0] + xs[t], rotverts[1] + ys[t], linestyle='-', color=cmap.Reds(t/max(nsteps,1)), alpha=0.5)
+      ax.plot(rotverts[0] + xs[t], rotverts[1] + ys[t], linestyle='-', color=cmap.Reds(t/max(nsteps,1)), alpha=0.5, zorder=t)
 
     timeplot = ax.scatter(xs, ys, marker=markers[n%len(markers)], edgecolors='none', c=range(nsteps+1), cmap=cmap.Reds, alpha=0.5)
 
@@ -119,12 +126,17 @@ if (2 in arg.d): # 2D position plot
   ax.set_ylabel("$y$ Position")
   ax.set_aspect('equal')
 
-  plt.show()
+  if (arg.p):
+    log = np.log10(tstep)
+    plt.savefig("{}-t{}-n{}-2.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-log)*tstep)), nsteps), frameon=True);
+  else:
+    plt.show()
 
 
 if (3 in arg.d): # conservation of energy and momentum
   fig, axs = plt.subplots(1, 3)
   fig.set_tight_layout(True)
+  fig.set_size_inches(15, 4.5)
   sysE = np.zeros(nsteps+1)
   sysPx = np.zeros(nsteps+1)
   sysPy = np.zeros(nsteps+1)
@@ -177,4 +189,9 @@ if (3 in arg.d): # conservation of energy and momentum
   axs[1].legend()
   axs[2].set_title("System-Wide Conservation")
   axs[2].legend()
-  plt.show()
+
+  if (arg.p):
+    log = np.log10(tstep)
+    plt.savefig("{}-t{}-n{}-3.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-log)*tstep)), nsteps), frameon=True);
+  else:
+    plt.show()

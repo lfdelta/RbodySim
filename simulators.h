@@ -71,8 +71,6 @@ public:
     elasticity = clamp(e, 0, 1);
   }
 
-  // void loadSystem(filestream) //http://www.cplusplus.com/doc/tutorial/files/  //https://www.learncpp.com/cpp-tutorial/186-basic-file-io/
-
   // performs a complete simulation, running for nsteps
   void runFullSimulation(FILE* outSIM=stdout, FILE* outSYS=stdout, FILE* outSTA=stdout, FILE* outDYN=stdout) {
     clock_t timer;
