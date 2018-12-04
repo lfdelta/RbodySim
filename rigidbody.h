@@ -9,13 +9,13 @@
 class Rigidbody {
 public:
   vec2* vertices; // local space, counterclockwise
+  vec2* normals; // normal vector to the edge; normal[i] between vertices[i] and vertices[i+1]
   int nverts;
   vec2 position; // world space
   float rotation; // radians
   float mass, invmass;
   float inertia, invinertia; // moment of inertia
   float radius; // distance from CoM to farthest vertex
-  vec2* normals; // normal vector to the edge; normal[i] between vertices[i] and vertices[i+1]
   mat2 rotmat; // rotation matrix; should be updated as needed with updateRotMat()
   vec2 AABB[2]; // local axis-aligned bounding box; lower-left and upper-right
 

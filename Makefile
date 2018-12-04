@@ -5,13 +5,13 @@ tests:
 	make continuous
 
 rbody:
-	clang++ testrbody.cpp -o testrbody
+	clang++ testrbody.cpp -Wall -o testrbody
 
 sim:
-	clang++ testsim.cpp -o testsim
+	clang++ testsim.cpp -Wall -Wno-c++11-extensions -Wno-char-subscripts -o testsim
 
 continuous:
-	clang++ testcontinuous.cpp -o testcont
+	clang++ testcontinuous.cpp -Wall -Wno-c++11-extensions -Wno-char-subscripts -o testcont
 
 clean:
 	rm ./testsim ; rm ./testrbody ; rm ./testcont ; rm *~ *.dyn *.sys *.sta *.sim

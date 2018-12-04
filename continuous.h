@@ -2,6 +2,7 @@
 #define _CONTINUOUS_
 
 #include "simulators.h"
+#include <vector>
 
 // Minkowski sum vertex
 // used to determine rigidbody overlap and contact points
@@ -753,10 +754,26 @@ float cross(const vec2 a, const vec2 b) {
 }
 
 
+struct CollisionEvent {
+  int Aind;
+  int Bind;
+  bool Bdynamic;
+  ContactMesh c;
+
+  CollisionEvent()
+  : Aind(-1), Bind(-1) {}
+
+  CollisionEvent(int a, int b, bool dyn, ContactMesh cmesh)
+  : Aind(a), Bind(b), Bdynamic(dyn), c(cmesh) {}
+};
+
+
 class ContinuousSim : public Simulator {
   public:
   int physLoops;
   int step;
+  std::vector<CollisionEvent> stack;
+  std::vector<CollisionEvent> lastIterStack;
 
   ContinuousSim(Dynamic** phys, const int nphysObjs, Static** statics, const int nstatObjs, const int loops=5,
                 const double t=0.01, const int n=1, const vec2& g=vec2(0,0), const float e=1, const SimType type=Sim_Timer)
@@ -766,47 +783,47 @@ class ContinuousSim : public Simulator {
   // reference: Realtime Physics (John Dingliana, presented by Michael Manzke)
   // reference: Erin Catto, GDC 2014
   void staticCollision(Dynamic* d, Static* s, ContactMesh c) {
-    vec2 dp = vec2(0,0);
-    float dw = 0;
-
-    for (int i=0; i < c.sz; i++) {
-      //   fprintf(stderr, "velocity: {%f, %f}\n", d->velocity[0], d->velocity[1]);
-      //   fprintf(stderr, "perpvel: %f\n", perpvel);
-      vec2 nhat = -c.nhat[i]; // points from static to dynamic
-      fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
-      vec2 r = c.pos[i] - d->position;
-      vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
-      vec2 vrel = nhat * nhat.dot(d->velocity + wxr);
-      vec2 changeP = (1 + elasticity) * d->mass * vrel;
-      dp += changeP;
-      dw += cross(r, changeP) * d->invinertia;
-    }
-
-    if (c.sz == 2)
-      dp *= 0.5;
-
-    d->velocity -= dp * d->invmass;
-    d->rotspeed -= dw;
-
     // vec2 dp = vec2(0,0);
-    // float dalpha = 0;
+    // float dw = 0;
 
     // for (int i=0; i < c.sz; i++) {
+      //   fprintf(stderr, "velocity: {%f, %f}\n", d->velocity[0], d->velocity[1]);
+      //   fprintf(stderr, "perpvel: %f\n", perpvel);
     //   vec2 nhat = -c.nhat[i]; // points from static to dynamic
     //   fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
     //   vec2 r = c.pos[i] - d->position;
     //   vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
-    //   float vrel = nhat.dot(d->velocity + wxr);
-    //   float rxn = cross(r, nhat);
-    //   float j = -(1 + elasticity) * vrel / (d->invmass + d->invinertia*rxn*rxn);
-
-    //   vec2 J = nhat * j;
-    //   dp += J;
-    //   dalpha += cross(r, J);
+    //   vec2 vrel = nhat * nhat.dot(d->velocity + wxr);
+    //   vec2 changeP = (1 + elasticity) * d->mass * vrel;
+    //   dp += changeP;
+    //   dw += cross(r, changeP) * d->invinertia;
     // }
 
-    // d->velocity += dp * d->invmass;
-    // d->rotspeed += dalpha * d->invinertia;
+    // if (c.sz == 2)
+    //   dp *= 0.5;
+
+    // d->velocity -= dp * d->invmass;
+    // d->rotspeed -= dw;
+
+    vec2 dp = vec2(0,0);
+    float dalpha = 0;
+
+    for (int i=0; i < c.sz; i++) {
+      vec2 nhat = -c.nhat[i]; // points from static to dynamic
+      fprintf(stderr, "nhat {%0.1f, %0.1f}\n", nhat[0], nhat[1]);
+      vec2 r = c.pos[i] - d->position;
+      vec2 wxr = d->rotspeed * vec2(-r[1], r[0]); // omega cross r
+      float vrel = nhat.dot(d->velocity + wxr);
+      float rxn = cross(r, nhat);
+      float j = -(1 + elasticity) * vrel / (d->invmass + d->invinertia*rxn*rxn);
+
+      vec2 J = nhat * j;
+      dp += J;
+      dalpha += cross(r, J);
+    }
+
+    d->velocity += dp * d->invmass;
+    d->rotspeed += dalpha * d->invinertia;
   }
 
 
@@ -858,7 +875,7 @@ class ContinuousSim : public Simulator {
   void simulateTimestep() {
     fprintf(stderr, "loop %d\n", step++);
     float remaining = tstep; // amount of time left to integrate in this timestep
-    bool collision = false; // was a collision detected?
+    //bool collision = false; // was a collision detected?
     float tcol; // time of earliest collision
 
     // apply forces to each object
@@ -874,79 +891,78 @@ class ContinuousSim : public Simulator {
 
     if (nphys == 1) {
       Dynamic* thisphys = physObjs[0];
-      Static* B; // first object collided with
-      int Bind = -1, ignore = -1;
-      ContactMesh cmesh; // contact mesh for earliest collision
-
       while (remaining > 0) {
-        collision = false;
         tcol = remaining+1;
 
         // accumulate earliest impact
         for (int j=0; j < nstatics; j++) {
-          if (j == ignore)
-            continue; // don't collide the same object between applying physics and integrating
+          bool skip = false;
+          for (CollisionEvent ig : lastIterStack)
+            if (ig.Aind == 0 && ig.Bind == j)
+              skip = true; // don't collide the same object between applying physics and integrating
+          if (skip)
+            continue;
 
           Static* other = staticObjs[j];
           float t = SphereOverlap(thisphys, other, remaining); // test possible collision
           if (t >= 0) {
             ContactMesh tmpmesh;
             t = TimeOfImpact(thisphys, other, t, remaining, tmpmesh); // test actual collision
-            if (t >= 0 && t < tcol) {
-              fprintf(stderr, "collision at fraction %f\n", t/tstep);
-              collision = true;
-              cmesh = tmpmesh;
-              tcol = t;
-              B = other;
-              Bind = j;
+            if (t >= 0) {
+              if (t < tcol) {
+                stack.clear();
+                stack.push_back(CollisionEvent(0, j, false, tmpmesh));
+                tcol = t;
+              } else if (abs(t-tcol) < EPSILON * tstep) {
+                stack.push_back(CollisionEvent(0, j, false, tmpmesh));
+              }
             }
           }
         }
 
-        if (collision) {
+        if (stack.size() > 0) {
+          fprintf(stderr, "collision at fraction %f\n", tcol/tstep);
           integratePositions(tcol);
-          staticCollision(thisphys, B, cmesh);
-          ignore = Bind;
+          for (CollisionEvent col : stack)
+            staticCollision(thisphys, staticObjs[col.Bind], col.c);
+          lastIterStack = stack;
+          stack.clear();
           remaining -= tcol;
         } else {
           integratePositions(remaining);
-          ignore = -1;
           remaining = -1;
         }
       }
 
     } else { // nphys > 1
-      Dynamic *A, *Bdyn; // first objects to collide
-      Static* Bstat;
-      int Aind = -1, Bind = -1, ignore1 = -1, ignoreD = -1, ignoreS = -1;
-      ContactMesh cmesh; // contact mesh for earliest collision
 
       while (remaining > 0) {
-        collision = false;
-        bool dyncoll = false; // was the collision between two dynamic objects
         tcol = remaining+1;
 
         // accumulate earliest impact, starting with each dynamic object pair
         for (int i=0; i < nphys-1; i++) {
           Dynamic* thisphys = physObjs[i];
           for (int j=i+1; j < nphys; j++) {
-            if (i == ignore1 && j == ignoreD)
-              continue; // don't collide the same object pair between applying physics and integrating
+            bool skip = false;
+            for (CollisionEvent ig : lastIterStack)
+              if (ig.Bdynamic == true && ig.Aind == i && ig.Bind == j)
+                skip = true; // don't collide the same object between applying physics and integrating
+            if (skip)
+              continue;
 
             Dynamic* other = physObjs[j];
-            float t = SphereOverlap(thisphys, other, remaining); // test possible collision
+            float t = SphereOverlap(thisphys, other, fmin(tcol, remaining)); // test possible collision
             if (t >= 0) {
               ContactMesh tmpmesh;
               t = TimeOfImpact(thisphys, other, t, remaining, tmpmesh); // test actual collision
-              if (t >= 0 && t < tcol) {
-                collision = true;
-                dyncoll = true;
-                cmesh = tmpmesh;
-                tcol = t;
-                A = thisphys;
-                Bdyn = other;
-                Aind = i;
-                Bind = j;
+              if (t >= 0) {
+                if (t < tcol) {
+                  stack.clear();
+                  stack.push_back(CollisionEvent(i, j, true, tmpmesh));
+                  tcol = t;
+                } else if (abs(t-tcol) < EPSILON * tstep) {
+                  stack.push_back(CollisionEvent(i, j, true, tmpmesh));
+                }
               }
             }
           }
@@ -955,7 +971,11 @@ class ContinuousSim : public Simulator {
         for (int i=0; i < nphys; i++) {
           Dynamic* thisphys = physObjs[i];
           for (int j=0; j < nstatics; j++) {
-            if (i == ignore1 && j == ignoreS)
+            bool skip = false;
+            for (CollisionEvent ig : lastIterStack)
+              if (ig.Bdynamic == false && ig.Aind == i && ig.Bind == j)
+                skip = true; // don't collide the same object between applying physics and integrating
+            if (skip)
               continue;
 
             Static* other = staticObjs[j];
@@ -963,38 +983,37 @@ class ContinuousSim : public Simulator {
             if (t >= 0) {
               ContactMesh tmpmesh;
               t = TimeOfImpact(thisphys, other, t, remaining, tmpmesh); // test actual collision
-              if (t >= 0 && t < tcol) {
-                collision = true;
-                dyncoll = false;
-                cmesh = tmpmesh;
-                tcol = t;
-                A = thisphys;
-                Bstat = other;
-                Aind = i;
-                Bind = j;
+              if (t >= 0) {
+                if (t < tcol) {
+                  stack.clear();
+                  stack.push_back(CollisionEvent(i, j, false, tmpmesh));
+                  tcol = t;
+                } else if (abs(t-tcol) < EPSILON * tstep) {
+                  stack.push_back(CollisionEvent(i, j, false, tmpmesh));
+                }
               }
             }
           }
         } // end dynamic-static loop
 
-        if (collision) {
+        if (stack.size() > 0) {
           integratePositions(tcol);
-          ignore1 = Aind;
 
-          if (dyncoll) {
-            dynamicCollision(A, Bdyn, cmesh);
-            ignoreD = Bind;
-            ignoreS = -1;
-          } else {
-            staticCollision(A, Bstat, cmesh);
-            ignoreD = -1;
-            ignoreS = Bind;
+          fprintf(stderr, "resolving stack of size %lu\n", stack.size());
+
+          for (CollisionEvent col : stack) {
+            if (col.Bdynamic)
+              dynamicCollision(physObjs[col.Aind], physObjs[col.Bind], col.c);
+            else
+              staticCollision(physObjs[col.Aind], staticObjs[col.Bind], col.c);
           }
+          lastIterStack = stack;
+          fprintf(stderr, "passing on stack of size %lu\n", lastIterStack.size());
+          stack.clear();
           remaining -= tcol;
 
         } else { // no collision
           integratePositions(remaining);
-          ignore1 = ignoreD = ignoreS = -1;
           remaining = -1;
         }
       }
