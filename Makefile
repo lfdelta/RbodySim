@@ -1,15 +1,17 @@
 
+sim:
+	clang++ testsim.cpp -Wall -Wno-c++11-extensions -Wno-char-subscripts -o testsim
+
 tests:
 	make rbody
-	make euler
+	make sim
+	make continuous
 
 rbody:
-	clang++ testrbody.cpp -o testrbody
+	clang++ testrbody.cpp -Wall -o testrbody
 
-euler:
-	clang++ testeuler.cpp -o testeuler
+continuous:
+	clang++ testcontinuous.cpp -Wall -Wno-c++11-extensions -Wno-char-subscripts -o testcont
 
 clean:
-	rm ./testeuler
-	rm ./testrbody
-	rm *~
+	rm ./testsim ; rm ./testrbody ; rm ./testcont ; rm *~ *.dyn *.sys *.sta *.sim

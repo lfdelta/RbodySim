@@ -33,7 +33,11 @@
 
 *~
 sim
-testeuler
 testrbody
-*.csv
+testcont
+testsim
+*.sim
 *.sys
+*.sta
+*.dyn
+.DS_Store
