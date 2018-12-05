@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
     case ':':
     case '?':
     default:
-      fprintf(stderr, "Usage: [-n nsteps] [-t timestep] [-s scenario] [-f outfile_prefix]\n");
+      fprintf(stderr, "Usage: [-c] [-s test_scenario] [-n nsteps] [-t timestep] [-f outfile_prefix] [-p physloops] [-e coeff_of_restitution]\n");
       return 1;
     }
   }
@@ -141,7 +141,7 @@ int main(int argc, char* argv[]) {
     grav = vec2(0,0);
 
   } else if (scene == 6)  { // fast-moving particle (probable tunneling)
-    Dynamic* box = new Dynamic(boxverts, 4, vec2(0, 0), 0,0, vec2(100,0), pi);
+    Dynamic* box = new Dynamic(boxverts, 4, vec2(0, 0), 0,0, vec2(100,20), pi);
     Static* wallR = new Static(thinfloorverts, 4, vec2(10.05, 0), halfpi);
     Static* wallL = new Static(thinfloorverts, 4, vec2(-10.05, 0), halfpi);
     Static* wallT = new Static(thinfloorverts, 4, vec2(0, 10.05));
@@ -162,7 +162,7 @@ int main(int argc, char* argv[]) {
     stats[0] = floor;
 
   } else if (scene == 8) { // cue ball breaking a tower -> particles in a box
-    float gridsz = 1.5;
+    float gridsz = 2.0;
     int k=0;
     for (int i=0; i < 4; i++) {
       float y = gridsz * i;

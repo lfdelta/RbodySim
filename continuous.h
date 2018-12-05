@@ -753,16 +753,6 @@ float TimeOfImpact(Rigidbody* A, Rigidbody* B, float t1, float tstep, ContactMes
   return t;
 }
 
-// returns a "vector" in the zhat direction
-float cross(const vec2 a, const vec2 b) {
-  return a[0]*b[1] - a[1]*b[0];
-}
-
-// scalar argument is assumed to be a vector in the zhat direction
-vec2 cross(const float a, const vec2 b) {
-  return a * vec2(-b[1], b[0]);
-}
-
 
 struct CollisionEvent {
   int Aind;
@@ -1030,6 +1020,16 @@ class ContinuousSim : public Simulator {
           lastIterStack = stack;
           stack.clear();
           remaining -= tcol;
+
+          // // don't remove objects from the "ignore" pile if they haven't had the chance to be integrated yet
+          // if (tcol > 0) {
+          //   lastIterStack = stack;
+          //   remaining -= tcol;
+          // } else {
+          //   for (CollisionEvent col : stack) {
+          //     lastIterStack.push_back(col);
+          //   }
+          // }
 
         } else { // no collision
           integratePositions(remaining);

@@ -28,6 +28,16 @@ inline int max(const int a, const int b) {
   return (a > b) ? (a) : (b);
 }
 
+// returns a "vector" in the zhat direction
+float cross(const vec2 a, const vec2 b) {
+  return a[0]*b[1] - a[1]*b[0];
+}
+
+// scalar argument is assumed to be a vector in the zhat direction
+vec2 cross(const float a, const vec2 b) {
+  return a * vec2(-b[1], b[0]);
+}
+
 // takes an angle, t, in radians
 // returns a 2x2 CCW rotation matrix
 mat2 RotationMatrix(const float t) {

@@ -85,7 +85,7 @@ if (1 in arg.d): # plot x and y separately against t
 
   if (arg.p):
     log = np.log10(tstep)
-    plt.savefig("{}-t{}-n{}-1.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-log)*tstep)), nsteps), frameon=True);
+    plt.savefig("{}-t{}-n{}-1.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-np.floor(log))*tstep)), nsteps), frameon=True);
   else:
     plt.show()
 
@@ -128,7 +128,7 @@ if (2 in arg.d): # 2D position plot
 
   if (arg.p):
     log = np.log10(tstep)
-    plt.savefig("{}-t{}-n{}-2.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-log)*tstep)), nsteps), frameon=True);
+    plt.savefig("{}-t{}-n{}-2.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-np.floor(log))*tstep)), nsteps), frameon=True);
   else:
     plt.show()
 
@@ -192,6 +192,6 @@ if (3 in arg.d): # conservation of energy and momentum
 
   if (arg.p):
     log = np.log10(tstep)
-    plt.savefig("{}-t{}-n{}-3.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-log)*tstep)), nsteps), frameon=True);
+    plt.savefig("{}-t{}-n{}-3.pdf".format(arg.p[0], -int(log+1)*'0' + str(int(10**(-np.floor(log))*tstep)), nsteps), frameon=True);
   else:
     plt.show()
